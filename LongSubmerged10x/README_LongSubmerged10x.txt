@@ -1,11 +1,12 @@
-Long Submerged 10x+ v1.2.1
+Long Submerged 10x+ v1.2.2
 
 Paramètres utilisés :
 - Air / atmosphère de base : capacité x125
 - Oxygen Consumption Per Character : divisé par 125
 - Discipline/fatigue sous l'eau : divisé par 15
 - Batterie / Accumulators : x10
-- EnergyUsage équipements hors ventilation/compresseurs : x0.1
+- EnergyUsage consommateurs hors ventilation/compresseurs : x0.1
+- EnergyUsage recharge/production batterie : x10
 - Ventilation vanilla : oui
 - Patch runtime : LongSubmerged10xPatch, recalcul de l'air apres chargement
 
@@ -27,4 +28,5 @@ Compteurs de génération :
 - Lignes capacité air Parameters : 0
 - Lignes capacité air cellules : 0
 - Lignes batterie : 3
-- Lignes EnergyUsage : 8
+- Lignes EnergyUsage consommation : 6
+- Lignes EnergyUsage recharge : 2

@@ -6,7 +6,8 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
 
 - Batterie beaucoup plus longue :
   - capacité des accumulateurs multipliée par 10 ;
-  - consommation électrique des équipements principaux réduite.
+  - consommation électrique des équipements principaux réduite ;
+  - recharge/production batterie compensée pour garder un temps de recharge normal.
 - Air / oxygène beaucoup plus long :
   - `Oxygen Consumption Per Character` est divisé par 125 ;
   - le mod vise environ 7 à 8 jours d'air sur une sauvegarde déjà en cours.
@@ -58,7 +59,8 @@ Options principales :
 
 - `--oxygen-consumption-factor 125` : divise la consommation d'oxygène par 125.
 - `--battery-capacity-factor 10` : multiplie les accumulateurs par 10.
-- `--energy-usage-factor 0.1` : réduit la consommation électrique des équipements.
+- `--energy-usage-factor 0.1` : réduit seulement la consommation électrique positive des équipements.
+- Les lignes `EnergyUsage` négatives, utilisées pour la recharge/production batterie, sont multipliées par le facteur batterie pour éviter une recharge complète dix fois plus longue.
 - `--clear-cache` : vide le cache local UBOAT `Data Sheets` pour forcer la recompilation.
 
 ## Structure du dépôt

@@ -52,6 +52,7 @@ def make_entities_workbook(path: Path) -> None:
 
     append_equipment("Accumulators I", "Accumulators, Electric Engines Upgrade", "EnergyCapacityGain=25%")
     append_equipment("Electric Engines", "Engines, Electric Engines", "EnergyUsage = 0.000035, Noise = 0.52")
+    append_equipment("Diesel Engines", "Engines, Diesel Engines", "EnergyUsage = -1.0, Noise = 0.7")
     append_equipment("Atmosphere Tank", "Player U-boat Atmosphere Air", "AirCapacity = 100")
     append_equipment("Ventilation", "Ventilation", "EnergyUsage = 0.0001, OxygenGain = 0.00011, RegenerationLimit = 0.5")
 
@@ -106,7 +107,7 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.2.1")
+            self.assertEqual(manifest["version"], "1.2.2")
             self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch")
             self.assertIn("Reflection", manifest["permissions"])
             self.assertIn("2026.1 Patch 20", manifest["supportedGameVersions"])
@@ -136,19 +137,23 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
 
             self.assertIn("Accumulators I", ids)
             self.assertIn("Electric Engines", ids)
+            self.assertIn("Diesel Engines", ids)
             self.assertIn("Atmosphere Tank", ids)
             self.assertNotIn("Ventilation", ids)
 
             accumulator_row = find_row_by_id(entities_ws, "Accumulators I")
             engine_row = find_row_by_id(entities_ws, "Electric Engines")
+            diesel_row = find_row_by_id(entities_ws, "Diesel Engines")
             air_row = find_row_by_id(entities_ws, "Atmosphere Tank")
 
             self.assertIn("250%", entities_ws.cell(accumulator_row, 16).value)
             self.assertIn("EnergyUsage = 3.5e-06", entities_ws.cell(engine_row, 16).value)
+            self.assertIn("EnergyUsage = -10", entities_ws.cell(diesel_row, 16).value)
             self.assertIn("AirCapacity = 12500", entities_ws.cell(air_row, 16).value)
 
             report_text = (out_mod / "LongSubmerged10x_generation_report.txt").read_text(encoding="utf-8")
             self.assertIn("air_capacity_parameter_rows: 1", report_text)
+            self.assertIn("energy_recharge_rows: 1", report_text)
 
 
 if __name__ == "__main__":

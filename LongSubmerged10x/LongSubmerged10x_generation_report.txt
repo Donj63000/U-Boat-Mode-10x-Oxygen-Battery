@@ -2,7 +2,8 @@
 
 Compteurs :
 - battery_capacity_rows: 3
-- energy_usage_rows: 8
+- energy_recharge_rows: 2
+- energy_usage_rows: 6
 - general_oxygen_consumption_rows: 2
 
 Fichiers générés :
@@ -26,8 +27,8 @@ Changements :
 - Entities.xlsx / Equipment / Trim Pump | Trim Pump | 0 | 1939-01-01 00:00:00 | 3 | 0.5: EnergyUsage: 0.0002 -> 2e-05
 - Entities.xlsx / Equipment / Trim Pump Type II | Trim Pump Type II | 0 | 1939-01-01 00:00:00 | 3 | 0.5: EnergyUsage: 0.0002 -> 2e-05
 - Entities.xlsx / Equipment / Depth Steers Station | 0 | 1939-01-01 00:00:00 | 1 | 0.6: EnergyUsage: 0.01 -> 0.001
-- Entities.xlsx / Equipment / Diesel Engines | Engines, Diesel Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.4: EnergyUsage: -1.0 -> -0.1
-- Entities.xlsx / Equipment / Diesel Engines IIA | Engines, Diesel Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.4: EnergyUsage: -1.0 -> -0.1
+- Entities.xlsx / Equipment / Diesel Engines | Engines, Diesel Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.4: EnergyUsage: -1.0 -> -10
+- Entities.xlsx / Equipment / Diesel Engines IIA | Engines, Diesel Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.4: EnergyUsage: -1.0 -> -10
 - Entities.xlsx / Equipment / Electric Engines | Engines, Electric Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Electric Engines IIA | Engines, Electric Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Gyrocompass | Gyrocompass | 0 | 1939-01-01 00:00:00 | 1 | 1: EnergyUsage: 0.000015 -> 1.5e-06

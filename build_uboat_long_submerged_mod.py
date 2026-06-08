@@ -47,7 +47,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.2.1"
+MOD_VERSION = "1.2.2"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
 MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
@@ -808,6 +808,53 @@ ENERGY_USAGE_KEYS = {
 }
 
 
+def patch_energy_usage_parameters(
+    parameters: str,
+    *,
+    consumption_factor: float,
+    recharge_factor: float,
+) -> tuple[str, list[str], dict[str, int]]:
+    """
+    Je garde deux règles distinctes :
+    - valeur positive : l'équipement consomme, donc je réduis la consommation ;
+    - valeur négative : l'équipement produit/recharge, donc je compense la batterie x10.
+    """
+    changes: list[str] = []
+    counters = {
+        "energy_usage_rows": 0,
+        "energy_recharge_rows": 0,
+    }
+
+    def replace(match: re.Match[str]) -> str:
+        raw_key = match.group("key")
+        if normalize_parameter_key(raw_key) not in ENERGY_USAGE_KEYS:
+            return match.group(0)
+
+        raw_number = match.group("number")
+        percent = match.group("percent") or ""
+        parsed = safe_float(raw_number + percent)
+
+        if parsed is None or parsed == 0:
+            return match.group(0)
+
+        if parsed < 0:
+            multiplier = recharge_factor
+            counter_key = "energy_recharge_rows"
+        else:
+            multiplier = consumption_factor
+            counter_key = "energy_usage_rows"
+
+        scaled = parsed * multiplier
+        replacement_number = format_number(scaled, percent)
+        changes.append(f"{raw_key.strip()}: {raw_number}{percent} -> {replacement_number}")
+        counters[counter_key] = 1
+
+        return match.group("prefix") + replacement_number
+
+    new_parameters = KEY_VALUE_PATTERN.sub(replace, parameters)
+    return new_parameters, changes, counters
+
+
 ACCUMULATOR_CAPACITY_KEYS = {
     "energycapacity",
     "batterycapacity",
@@ -937,7 +984,7 @@ def patch_parameter_cell(
     changes: list[str] = []
     lowered_context = row_text_full.lower()
 
-    # Batterie : je garde le comportement validé en jeu, parce que tu as confirmé que la batterie fonctionne.
+    # Batterie : je garde l'autonomie validée en jeu.
     if is_accumulator_row(row_text_full):
         accumulator_multipliers = {key: args.battery_capacity_factor for key in ACCUMULATOR_CAPACITY_KEYS}
 
@@ -947,19 +994,24 @@ def patch_parameter_cell(
             changes.extend(local_changes)
             counters["battery_capacity_rows"] = 1
 
-    # Conso électrique : on la réduit sur les équipements normaux, mais PAS sur ventilation/compresseurs.
-    # Cela évite de casser ou de rendre illisible le système d'air.
+    # Conso/recharge électrique : je réduis les consommateurs et je compense les rechargeurs.
+    # Avec une batterie x10, une recharge vanilla remplirait le plein dix fois trop lentement.
     if (
         not is_ventilation_row(row_text_full)
         and not is_compressor_row(row_text_full)
         and any(key in normalize_parameter_key(new_parameters) for key in ENERGY_USAGE_KEYS)
     ):
-        energy_multipliers = {key: args.energy_usage_factor for key in ENERGY_USAGE_KEYS}
-        patched, local_changes = replace_keyed_parameters(new_parameters, energy_multipliers)
+        patched, local_changes, local_counters = patch_energy_usage_parameters(
+            new_parameters,
+            consumption_factor=args.energy_usage_factor,
+            recharge_factor=args.battery_capacity_factor,
+        )
         if local_changes:
             new_parameters = patched
             changes.extend(local_changes)
-            counters["energy_usage_rows"] = 1
+            for key, value in local_counters.items():
+                if value:
+                    counters[key] = value
 
     # Air / atmosphère de base : c'est le nouveau levier principal.
     # On vise les clés de capacité/stock, jamais les clés Gain/Usage/Consumption.
@@ -1228,7 +1280,8 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"conso air x1/{args.oxygen_consumption_factor:g}, "
             f"discipline x1/{args.discipline_factor:g}, "
             f"batterie x{args.battery_capacity_factor:g}, "
-            f"EnergyUsage x{args.energy_usage_factor:g}. "
+            f"consommation électrique x{args.energy_usage_factor:g}, "
+            f"recharge batterie x{args.battery_capacity_factor:g}. "
             "cette version garde la ventilation vanilla par défaut."
         ),
         "author": MOD_AUTHOR,
@@ -1361,7 +1414,8 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Oxygen Consumption Per Character : divisé par {args.oxygen_consumption_factor:g}",
         f"- Discipline/fatigue sous l'eau : divisé par {args.discipline_factor:g}",
         f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
-        f"- EnergyUsage équipements hors ventilation/compresseurs : x{args.energy_usage_factor:g}",
+        f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}",
+        f"- EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
         f"- Patch runtime : {MOD_ASSEMBLY_NAME}, recalcul de l'air apres chargement",
         "",
@@ -1388,7 +1442,8 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 f"- Lignes capacité air Parameters : {report.counters.get('air_capacity_parameter_rows', 0)}",
                 f"- Lignes capacité air cellules : {report.counters.get('air_capacity_cell_rows', 0)}",
                 f"- Lignes batterie : {report.counters.get('battery_capacity_rows', 0)}",
-                f"- Lignes EnergyUsage : {report.counters.get('energy_usage_rows', 0)}",
+                f"- Lignes EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}",
+                f"- Lignes EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}",
             ]
         )
 
@@ -1521,7 +1576,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--energy-usage-factor",
         type=float,
         default=DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR,
-        help="Multiplicateur EnergyUsage hors ventilation/compresseurs. Défaut : 0.1.",
+        help="Multiplicateur EnergyUsage positif hors ventilation/compresseurs. Défaut : 0.1.",
     )
 
     parser.add_argument(
@@ -1701,7 +1756,8 @@ def main(argv: list[str]) -> int:
     print(f"  - Oxygen Consumption Per Character : /{args.oxygen_consumption_factor:g}")
     print(f"  - Discipline/fatigue : /{args.discipline_factor:g}")
     print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
-    print(f"  - EnergyUsage hors ventilation/compresseurs : x{args.energy_usage_factor:g}")
+    print(f"  - EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}")
+    print(f"  - EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}")
     print(f"  - Ventilation vanilla : {'NON, patchée' if args.patch_ventilation else 'OUI, laissée normale'}")
 
     print("\nCompteurs importants :")
@@ -1709,7 +1765,8 @@ def main(argv: list[str]) -> int:
     print(f"  - Capacité air dans Parameters : {report.counters.get('air_capacity_parameter_rows', 0)}")
     print(f"  - Capacité air dans cellules : {report.counters.get('air_capacity_cell_rows', 0)}")
     print(f"  - Batterie : {report.counters.get('battery_capacity_rows', 0)}")
-    print(f"  - EnergyUsage : {report.counters.get('energy_usage_rows', 0)}")
+    print(f"  - EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}")
+    print(f"  - EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}")
 
     print("\nFichiers générés :")
     print(f"  - {out_mod_dir / 'Manifest.json'}")
