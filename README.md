@@ -11,6 +11,9 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
 - Air / oxygène beaucoup plus long :
   - `Oxygen Consumption Per Character` est divisé par 125 ;
   - le mod vise environ 7 à 8 jours d'air sur une sauvegarde déjà en cours.
+- Vitesse rapide améliorée :
+  - les deux crans avant les plus rapides sont doublés ;
+  - les vitesses lentes et mi-vitesse restent vanilla pour garder la manoeuvre fine.
 - Discipline et fatigue adaptées à l'immersion longue :
   - les pertes sous l'eau sont réduites proportionnellement.
 - Ventilation laissée vanilla :
@@ -61,6 +64,8 @@ Options principales :
 - `--battery-capacity-factor 10` : multiplie les accumulateurs par 10.
 - `--energy-usage-factor 0.1` : réduit seulement la consommation électrique positive des équipements.
 - Les lignes `EnergyUsage` négatives, utilisées pour la recharge/production batterie, sont multipliées par le facteur batterie pour éviter une recharge complète dix fois plus longue.
+- `--fast-speed-factor 2` : double les crans rapides de marche avant.
+- `--fast-speed-top-gears 2` : applique le boost uniquement aux deux derniers crans avant.
 - `--clear-cache` : vide le cache local UBOAT `Data Sheets` pour forcer la recompilation.
 
 ## Structure du dépôt

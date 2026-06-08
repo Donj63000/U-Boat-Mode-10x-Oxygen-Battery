@@ -47,7 +47,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.2.2"
+MOD_VERSION = "1.2.3"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
 MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
@@ -67,6 +67,10 @@ DEFAULT_DISCIPLINE_FACTOR = 15.0
 # Batterie : ces réglages marchent chez toi, donc on les garde.
 DEFAULT_BATTERY_CAPACITY_FACTOR = 10.0
 DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR = 0.10
+
+# Vitesse : seuls les deux derniers crans avant sont boostes.
+DEFAULT_FAST_SPEED_FACTOR = 2.0
+DEFAULT_FAST_SPEED_TOP_GEARS = 2
 
 # IMPORTANT :
 # On ne modifie plus la ventilation par défaut.
@@ -598,6 +602,10 @@ KEY_VALUE_PATTERN = re.compile(
 
 def format_number(value: float, percent: str = "") -> str:
     return f"{value:.10g}" + percent
+
+
+def format_csharp_float(value: float) -> str:
+    return f"{value:.10g}f"
 
 
 def normalize_parameter_key(key: str) -> str:
@@ -1281,7 +1289,8 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"discipline x1/{args.discipline_factor:g}, "
             f"batterie x{args.battery_capacity_factor:g}, "
             f"consommation électrique x{args.energy_usage_factor:g}, "
-            f"recharge batterie x{args.battery_capacity_factor:g}. "
+            f"recharge batterie x{args.battery_capacity_factor:g}, "
+            f"{args.fast_speed_top_gears} crans rapides x{args.fast_speed_factor:g}. "
             "cette version garde la ventilation vanilla par défaut."
         ),
         "author": MOD_AUTHOR,
@@ -1299,7 +1308,7 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
     )
 
 
-def write_runtime_patch_source(mod_dir: Path, report: PatchReport) -> None:
+def write_runtime_patch_source(mod_dir: Path, args: argparse.Namespace, report: PatchReport) -> None:
     source_dir = mod_dir / "Source"
     source_dir.mkdir(parents=True, exist_ok=True)
     source_path = source_dir / "LongSubmergedRuntimePatch.cs"
@@ -1307,9 +1316,11 @@ def write_runtime_patch_source(mod_dir: Path, report: PatchReport) -> None:
     source = r'''using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Scene.Entities;
+using UBOAT.Game.Scene.Items;
 using UnityEngine;
 
 namespace LongSubmerged10x
@@ -1359,12 +1370,202 @@ namespace LongSubmerged10x
         }
     }
 
+    internal static class EngineFastSpeedPatcher
+    {
+        private const float FastSpeedFactor = __FAST_SPEED_FACTOR__;
+        private const int FastForwardGearCount = __FAST_FORWARD_GEAR_COUNT__;
+
+        private static readonly FieldInfo ForwardPresetsField =
+            AccessTools.Field(typeof(PlayerShipEngine), "forwardPresets");
+
+        private static readonly FieldInfo ExpectedVelocityPerGearField =
+            AccessTools.Field(typeof(PlayerShipEngine), "expectedVelocityPerGear");
+
+        private static readonly FieldInfo ExpectedVelocityPerGearUnderwaterField =
+            AccessTools.Field(typeof(PlayerShipEngine), "expectedVelocityPerGearUnderwater");
+
+        private static readonly Type EngineSpeedPresetType =
+            typeof(PlayerShipEngine).GetNestedType("EngineSpeedPreset", BindingFlags.Public | BindingFlags.NonPublic);
+
+        private static readonly FieldInfo BasePowerField =
+            EngineSpeedPresetType == null ? null : AccessTools.Field(EngineSpeedPresetType, "basePower");
+
+        private static readonly ConditionalWeakTable<PlayerShipEngine, EngineSpeedPatchData> OriginalData =
+            new ConditionalWeakTable<PlayerShipEngine, EngineSpeedPatchData>();
+
+        private static readonly HashSet<int> WarnedEngines = new HashSet<int>();
+
+        public static void PatchPlayerShip(PlayerShip ship, string reason)
+        {
+            if (ship == null)
+                return;
+
+            try
+            {
+                PatchEngine(ship.DieselEngine, reason + ".DieselEngine");
+                PatchEngine(ship.ElectricEngine, reason + ".ElectricEngine");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void PatchEngine(PlayerShipEngine engine, string reason)
+        {
+            if (engine == null)
+                return;
+
+            try
+            {
+                if (!FieldsReady())
+                {
+                    WarnOnce(engine, "champs moteur introuvables, patch vitesse ignore.");
+                    return;
+                }
+
+                Array forwardPresets = ForwardPresetsField.GetValue(engine) as Array;
+                float[] expectedVelocityPerGear = ExpectedVelocityPerGearField.GetValue(engine) as float[];
+                float[] expectedVelocityPerGearUnderwater =
+                    ExpectedVelocityPerGearUnderwaterField.GetValue(engine) as float[];
+
+                if (forwardPresets == null || forwardPresets.Length < FastForwardGearCount)
+                {
+                    WarnOnce(engine, "moins de " + FastForwardGearCount + " crans avant, patch vitesse ignore.");
+                    return;
+                }
+
+                EngineSpeedPatchData data;
+                if (!OriginalData.TryGetValue(engine, out data))
+                {
+                    data = EngineSpeedPatchData.Capture(
+                        forwardPresets,
+                        expectedVelocityPerGear,
+                        expectedVelocityPerGearUnderwater,
+                        BasePowerField
+                    );
+                    OriginalData.Add(engine, data);
+                }
+
+                ApplyTopGearBasePower(forwardPresets, data.ForwardBasePower);
+                ApplyTopGearFloatArray(expectedVelocityPerGear, data.ExpectedVelocityPerGear);
+                ApplyTopGearFloatArray(expectedVelocityPerGearUnderwater, data.ExpectedVelocityPerGearUnderwater);
+
+                Debug.Log("[LongSubmerged10x] Fast speed patch applied after " + reason + ".");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        private static bool FieldsReady()
+        {
+            return ForwardPresetsField != null
+                && ExpectedVelocityPerGearField != null
+                && ExpectedVelocityPerGearUnderwaterField != null
+                && BasePowerField != null;
+        }
+
+        private static void ApplyTopGearBasePower(Array forwardPresets, float[] originalBasePower)
+        {
+            if (forwardPresets == null || originalBasePower == null)
+                return;
+
+            int patchCount = Math.Min(FastForwardGearCount, Math.Min(forwardPresets.Length, originalBasePower.Length));
+            int firstPatchedGear = forwardPresets.Length - patchCount;
+
+            for (int index = firstPatchedGear; index < forwardPresets.Length; index++)
+            {
+                object preset = forwardPresets.GetValue(index);
+                if (preset == null)
+                    continue;
+
+                BasePowerField.SetValue(preset, originalBasePower[index] * FastSpeedFactor);
+                forwardPresets.SetValue(preset, index);
+            }
+        }
+
+        private static void ApplyTopGearFloatArray(float[] target, float[] original)
+        {
+            if (target == null || original == null)
+                return;
+
+            int patchCount = Math.Min(FastForwardGearCount, Math.Min(target.Length, original.Length));
+            int firstPatchedGear = target.Length - patchCount;
+
+            for (int index = firstPatchedGear; index < target.Length; index++)
+                target[index] = original[index] * FastSpeedFactor;
+        }
+
+        private static void WarnOnce(PlayerShipEngine engine, string message)
+        {
+            int instanceId = engine.GetInstanceID();
+            if (WarnedEngines.Add(instanceId))
+                Debug.LogWarning("[LongSubmerged10x] " + message);
+        }
+    }
+
+    internal sealed class EngineSpeedPatchData
+    {
+        public readonly float[] ForwardBasePower;
+        public readonly float[] ExpectedVelocityPerGear;
+        public readonly float[] ExpectedVelocityPerGearUnderwater;
+
+        private EngineSpeedPatchData(
+            float[] forwardBasePower,
+            float[] expectedVelocityPerGear,
+            float[] expectedVelocityPerGearUnderwater)
+        {
+            ForwardBasePower = forwardBasePower;
+            ExpectedVelocityPerGear = expectedVelocityPerGear;
+            ExpectedVelocityPerGearUnderwater = expectedVelocityPerGearUnderwater;
+        }
+
+        public static EngineSpeedPatchData Capture(
+            Array forwardPresets,
+            float[] expectedVelocityPerGear,
+            float[] expectedVelocityPerGearUnderwater,
+            FieldInfo basePowerField)
+        {
+            float[] basePower = new float[forwardPresets.Length];
+
+            for (int index = 0; index < forwardPresets.Length; index++)
+            {
+                object preset = forwardPresets.GetValue(index);
+                if (preset == null)
+                    continue;
+
+                object rawValue = basePowerField.GetValue(preset);
+                if (rawValue is float)
+                    basePower[index] = (float)rawValue;
+            }
+
+            return new EngineSpeedPatchData(
+                basePower,
+                CloneFloatArray(expectedVelocityPerGear),
+                CloneFloatArray(expectedVelocityPerGearUnderwater)
+            );
+        }
+
+        private static float[] CloneFloatArray(float[] source)
+        {
+            if (source == null)
+                return null;
+
+            float[] clone = new float[source.Length];
+            Array.Copy(source, clone, source.Length);
+            return clone;
+        }
+    }
+
     [HarmonyPatch(typeof(PlayerShip), "Awake")]
     internal static class PlayerShipAwakePatch
     {
         private static void Postfix(PlayerShip __instance)
         {
             OxygenBreathRecalculator.Recalculate(__instance, "PlayerShip.Awake");
+            EngineFastSpeedPatcher.PatchPlayerShip(__instance, "PlayerShip.Awake");
         }
     }
 
@@ -1374,6 +1575,7 @@ namespace LongSubmerged10x
         private static void Postfix(PlayerShip __instance, Queue<Action> __0)
         {
             OxygenBreathRecalculator.Recalculate(__instance, "SavesManagerOnLoaded");
+            EngineFastSpeedPatcher.PatchPlayerShip(__instance, "SavesManagerOnLoaded");
         }
     }
 
@@ -1394,14 +1596,44 @@ namespace LongSubmerged10x
             OxygenBreathRecalculator.Recalculate(__instance, "Crew_Removed");
         }
     }
+
+    [HarmonyPatch(typeof(PlayerShipEngine), "Awake")]
+    internal static class PlayerShipEngineAwakePatch
+    {
+        private static void Postfix(PlayerShipEngine __instance)
+        {
+            EngineFastSpeedPatcher.PatchEngine(__instance, "PlayerShipEngine.Awake");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShipEngine), "OnAfterDeserialize")]
+    internal static class PlayerShipEngineOnAfterDeserializePatch
+    {
+        private static void Postfix(PlayerShipEngine __instance)
+        {
+            EngineFastSpeedPatcher.PatchEngine(__instance, "PlayerShipEngine.OnAfterDeserialize");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShipEngine), "SavesManagerOnLoaded")]
+    internal static class PlayerShipEngineSavesManagerOnLoadedPatch
+    {
+        private static void Postfix(PlayerShipEngine __instance, Queue<Action> __0)
+        {
+            EngineFastSpeedPatcher.PatchEngine(__instance, "PlayerShipEngine.SavesManagerOnLoaded");
+        }
+    }
 }
 '''
+
+    source = source.replace("__FAST_SPEED_FACTOR__", format_csharp_float(args.fast_speed_factor))
+    source = source.replace("__FAST_FORWARD_GEAR_COUNT__", str(args.fast_speed_top_gears))
 
     source_path.write_text(source, encoding="utf-8")
     report.file(source_path)
     report.note(
         "Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, "
-        "chargement de sauvegarde et changement d'equipage."
+        "chargement de sauvegarde et changement d'equipage, plus vitesse rapide moteur."
     )
 
 
@@ -1416,8 +1648,9 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
         f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}",
         f"- EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}",
+        f"- Deux derniers crans avant : x{args.fast_speed_factor:g}",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
-        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, recalcul de l'air apres chargement",
+        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement et crans rapides moteur",
         "",
         "Installation :",
         "1. Fermer UBOAT.",
@@ -1430,6 +1663,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.",
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
+        "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés.",
         "- Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.",
     ]
 
@@ -1580,6 +1814,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--fast-speed-factor",
+        type=float,
+        default=DEFAULT_FAST_SPEED_FACTOR,
+        help="Multiplicateur des derniers crans rapides de marche avant. Défaut : 2.",
+    )
+
+    parser.add_argument(
+        "--fast-speed-top-gears",
+        type=int,
+        default=DEFAULT_FAST_SPEED_TOP_GEARS,
+        help="Nombre de crans rapides avant à booster. Défaut : 2.",
+    )
+
+    parser.add_argument(
         "--patch-ventilation",
         action="store_true",
         default=DEFAULT_PATCH_VENTILATION,
@@ -1622,6 +1870,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "discipline_factor",
         "battery_capacity_factor",
         "energy_usage_factor",
+        "fast_speed_factor",
         "ventilation_gain_factor",
         "potassium_duration_factor",
     )
@@ -1630,6 +1879,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         value = getattr(args, name)
         if value <= 0:
             raise ValueError(f"--{name.replace('_', '-')} doit être > 0.")
+
+    if args.fast_speed_top_gears <= 0:
+        raise ValueError("--fast-speed-top-gears doit être > 0.")
 
     return args
 
@@ -1659,7 +1911,7 @@ def main(argv: list[str]) -> int:
         out_data_sheets.mkdir(parents=True, exist_ok=True)
 
         write_manifest(out_mod_dir, args)
-        write_runtime_patch_source(out_mod_dir, report)
+        write_runtime_patch_source(out_mod_dir, args, report)
 
         # 1) General.xlsx et Realistic Travel/General.xlsx.
         general_patches = build_general_patches(args)
@@ -1758,6 +2010,7 @@ def main(argv: list[str]) -> int:
     print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
     print(f"  - EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}")
     print(f"  - EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}")
+    print(f"  - Deux derniers crans avant : x{args.fast_speed_factor:g}")
     print(f"  - Ventilation vanilla : {'NON, patchée' if args.patch_ventilation else 'OUI, laissée normale'}")
 
     print("\nCompteurs importants :")
@@ -1787,7 +2040,8 @@ def main(argv: list[str]) -> int:
     print("  4. Place-le après les autres mods qui touchent General.xlsx, Entities.xlsx ou U-boat.xlsx.")
     print("  5. Charge ta sauvegarde existante ou lance une nouvelle carrière.")
     print("  6. Plonge à 100% air : le tooltip doit passer d'environ 13h à environ 8 jours.")
-    print("  7. Si la ventilation était cassée par une ancienne version, celle-ci doit la remettre vanilla car elle ne copie plus la ligne Ventilation.")
+    print("  7. Teste pleine vitesse / machines à fond : seuls les deux crans rapides doivent être boostés.")
+    print("  8. Si la ventilation était cassée par une ancienne version, celle-ci doit la remettre vanilla car elle ne copie plus la ligne Ventilation.")
 
     return 0
 

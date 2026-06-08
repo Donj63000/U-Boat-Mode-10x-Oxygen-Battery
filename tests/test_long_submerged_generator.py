@@ -107,7 +107,7 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.2.2")
+            self.assertEqual(manifest["version"], "1.2.3")
             self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch")
             self.assertIn("Reflection", manifest["permissions"])
             self.assertIn("2026.1 Patch 20", manifest["supportedGameVersions"])
@@ -118,6 +118,15 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("IUserMod", runtime_patch_text)
             self.assertIn("ValidateOxygenBreathModifier", runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShip), "SavesManagerOnLoaded")', runtime_patch_text)
+            self.assertIn("private const float FastSpeedFactor = 2f;", runtime_patch_text)
+            self.assertIn("private const int FastForwardGearCount = 2;", runtime_patch_text)
+            self.assertIn("EngineFastSpeedPatcher", runtime_patch_text)
+            self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "Awake")', runtime_patch_text)
+            self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "OnAfterDeserialize")', runtime_patch_text)
+            self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "SavesManagerOnLoaded")', runtime_patch_text)
+            self.assertIn("expectedVelocityPerGear", runtime_patch_text)
+            self.assertIn("expectedVelocityPerGearUnderwater", runtime_patch_text)
+            self.assertIn("basePower", runtime_patch_text)
 
             root_ws = load_workbook(out_mod / "Data Sheets" / "General.xlsx", data_only=False)["Settings"]
             realistic_ws = load_workbook(out_mod / "Data Sheets" / "Realistic Travel" / "General.xlsx", data_only=False)["Settings"]

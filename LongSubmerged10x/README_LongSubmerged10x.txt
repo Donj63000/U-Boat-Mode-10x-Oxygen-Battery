@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.2.2
+Long Submerged 10x+ v1.2.3
 
 Paramètres utilisés :
 - Air / atmosphère de base : capacité x125
@@ -7,8 +7,9 @@ Paramètres utilisés :
 - Batterie / Accumulators : x10
 - EnergyUsage consommateurs hors ventilation/compresseurs : x0.1
 - EnergyUsage recharge/production batterie : x10
+- Deux derniers crans avant : x2
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch, recalcul de l'air apres chargement
+- Patch runtime : LongSubmerged10xPatch, air apres chargement et crans rapides moteur
 
 Installation :
 1. Fermer UBOAT.
@@ -21,6 +22,7 @@ Notes :
 - La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.
+- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés.
 - Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.
 
 Compteurs de génération :
