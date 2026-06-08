@@ -136,7 +136,7 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.2.5")
+            self.assertEqual(manifest["version"], "1.2.6")
             self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch")
             self.assertIn("Reflection", manifest["permissions"])
             self.assertIn("2026.1 Patch 20", manifest["supportedGameVersions"])
@@ -148,14 +148,21 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("ValidateOxygenBreathModifier", runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShip), "SavesManagerOnLoaded")', runtime_patch_text)
             self.assertIn("private const float FastSpeedFactor = 3.5f;", runtime_patch_text)
+            self.assertIn("private const float FastSpeedFuelFactor = 8f;", runtime_patch_text)
+            self.assertIn("private const float PlayerSubmarineMaxSpeed = 45f;", runtime_patch_text)
             self.assertIn("private const int FastForwardGearCount = 2;", runtime_patch_text)
             self.assertIn("EngineFastSpeedPatcher", runtime_patch_text)
+            self.assertIn('HarmonyPatch(typeof(PlayerShip), "OnAfterDeserialize")', runtime_patch_text)
+            self.assertIn('HarmonyPatch(typeof(PlayerShip), "ValidateTargetVelocity")', runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "Awake")', runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "OnAfterDeserialize")', runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "SavesManagerOnLoaded")', runtime_patch_text)
             self.assertIn("expectedVelocityPerGear", runtime_patch_text)
             self.assertIn("expectedVelocityPerGearUnderwater", runtime_patch_text)
             self.assertIn("basePower", runtime_patch_text)
+            self.assertIn("fuelConsumptionInLitersPerHour", runtime_patch_text)
+            self.assertIn("PowerMultiplier", runtime_patch_text)
+            self.assertIn("AddDeltaModifier", runtime_patch_text)
 
             root_ws = load_workbook(out_mod / "Data Sheets" / "General.xlsx", data_only=False)["Settings"]
             realistic_ws = load_workbook(out_mod / "Data Sheets" / "Realistic Travel" / "General.xlsx", data_only=False)["Settings"]
@@ -175,23 +182,21 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
 
             self.assertIn("Accumulators I", ids)
             self.assertIn("Electric Engines", ids)
-            self.assertIn("Diesel Engines", ids)
+            self.assertNotIn("Diesel Engines", ids)
             self.assertIn("Atmosphere Tank", ids)
             self.assertNotIn("Ventilation", ids)
 
             accumulator_row = find_row_by_id(entities_ws, "Accumulators I")
             engine_row = find_row_by_id(entities_ws, "Electric Engines")
-            diesel_row = find_row_by_id(entities_ws, "Diesel Engines")
             air_row = find_row_by_id(entities_ws, "Atmosphere Tank")
 
             self.assertIn("250%", entities_ws.cell(accumulator_row, 16).value)
             self.assertIn("EnergyUsage = 3.5e-06", entities_ws.cell(engine_row, 16).value)
-            self.assertIn("EnergyUsage = -10", entities_ws.cell(diesel_row, 16).value)
             self.assertIn("AirCapacity = 12500", entities_ws.cell(air_row, 16).value)
 
             report_text = (out_mod / "LongSubmerged10x_generation_report.txt").read_text(encoding="utf-8")
             self.assertIn("air_capacity_parameter_rows: 1", report_text)
-            self.assertIn("energy_recharge_rows: 1", report_text)
+            self.assertNotIn("energy_recharge_rows:", report_text)
             self.assertIn("player_submarine_speed_rows: 2", report_text)
             self.assertIn("DLC Type IX detecte", report_text)
 

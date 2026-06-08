@@ -47,7 +47,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.2.5"
+MOD_VERSION = "1.2.6"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
 MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
@@ -70,6 +70,7 @@ DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR = 0.10
 
 # Vitesse : seuls les deux derniers crans avant sont boostes.
 DEFAULT_FAST_SPEED_FACTOR = 3.5
+DEFAULT_FAST_SPEED_FUEL_FACTOR = 8.0
 DEFAULT_FAST_SPEED_TOP_GEARS = 2
 DEFAULT_PLAYER_SUBMARINE_MAX_SPEED = 45.0
 
@@ -852,7 +853,7 @@ def patch_energy_usage_parameters(
     """
     Je garde deux règles distinctes :
     - valeur positive : l'équipement consomme, donc je réduis la consommation ;
-    - valeur négative : l'équipement produit/recharge, donc je compense la batterie x10.
+    - valeur négative : l'équipement produit/recharge, donc je laisse la recharge vanilla.
     """
     changes: list[str] = []
     counters = {
@@ -873,11 +874,10 @@ def patch_energy_usage_parameters(
             return match.group(0)
 
         if parsed < 0:
-            multiplier = recharge_factor
-            counter_key = "energy_recharge_rows"
-        else:
-            multiplier = consumption_factor
-            counter_key = "energy_usage_rows"
+            return match.group(0)
+
+        multiplier = consumption_factor
+        counter_key = "energy_usage_rows"
 
         scaled = parsed * multiplier
         replacement_number = format_number(scaled, percent)
@@ -1029,8 +1029,8 @@ def patch_parameter_cell(
             changes.extend(local_changes)
             counters["battery_capacity_rows"] = 1
 
-    # Conso/recharge électrique : je réduis les consommateurs et je compense les rechargeurs.
-    # Avec une batterie x10, une recharge vanilla remplirait le plein dix fois trop lentement.
+    # Conso/recharge électrique : je réduis les consommateurs et je garde les rechargeurs en vanilla.
+    # Multiplier les EnergyUsage négatifs rendait les diesels trop rapides à recharger.
     if (
         not is_ventilation_row(row_text_full)
         and not is_compressor_row(row_text_full)
@@ -1379,8 +1379,9 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"discipline x1/{args.discipline_factor:g}, "
             f"batterie x{args.battery_capacity_factor:g}, "
             f"consommation électrique x{args.energy_usage_factor:g}, "
-            f"recharge batterie x{args.battery_capacity_factor:g}, "
-            f"{args.fast_speed_top_gears} crans rapides x{args.fast_speed_factor:g}, "
+            "recharge diesel vanilla, "
+            f"{args.fast_speed_top_gears} crans rapides vitesse x{args.fast_speed_factor:g}, "
+            f"carburant rapide x{args.fast_speed_fuel_factor:g}, "
             f"vitesse max joueur {args.player_submarine_max_speed:g} km/h. "
             "cette version garde la ventilation vanilla par défaut."
         ),
@@ -1410,6 +1411,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UBOAT.Game;
+using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Entities;
 using UBOAT.Game.Scene.Items;
 using UnityEngine;
@@ -1464,7 +1466,10 @@ namespace LongSubmerged10x
     internal static class EngineFastSpeedPatcher
     {
         private const float FastSpeedFactor = __FAST_SPEED_FACTOR__;
+        private const float FastSpeedFuelFactor = __FAST_SPEED_FUEL_FACTOR__;
+        private const float PlayerSubmarineMaxSpeed = __PLAYER_SUBMARINE_MAX_SPEED__;
         private const int FastForwardGearCount = __FAST_FORWARD_GEAR_COUNT__;
+        private const string RuntimeVelocityModifierName = "LongSubmerged10x Player Speed Cap";
 
         private static readonly FieldInfo ForwardPresetsField =
             AccessTools.Field(typeof(PlayerShipEngine), "forwardPresets");
@@ -1481,8 +1486,20 @@ namespace LongSubmerged10x
         private static readonly FieldInfo BasePowerField =
             EngineSpeedPresetType == null ? null : AccessTools.Field(EngineSpeedPresetType, "basePower");
 
+        private static readonly FieldInfo FuelConsumptionField =
+            EngineSpeedPresetType == null ? null : AccessTools.Field(EngineSpeedPresetType, "fuelConsumptionInLitersPerHour");
+
+        private static readonly FieldInfo ShipPropellersField =
+            AccessTools.Field(typeof(Ship), "propellers");
+
         private static readonly ConditionalWeakTable<PlayerShipEngine, EngineSpeedPatchData> OriginalData =
             new ConditionalWeakTable<PlayerShipEngine, EngineSpeedPatchData>();
+
+        private static readonly ConditionalWeakTable<PlayerShip, ShipRuntimePatchData> ShipRuntimeData =
+            new ConditionalWeakTable<PlayerShip, ShipRuntimePatchData>();
+
+        private static readonly ConditionalWeakTable<Propeller, PropellerPatchData> PropellerRuntimeData =
+            new ConditionalWeakTable<Propeller, PropellerPatchData>();
 
         private static readonly HashSet<int> WarnedEngines = new HashSet<int>();
 
@@ -1495,6 +1512,24 @@ namespace LongSubmerged10x
             {
                 PatchEngine(ship.DieselEngine, reason + ".DieselEngine");
                 PatchEngine(ship.ElectricEngine, reason + ".ElectricEngine");
+                PatchShipVelocityCap(ship, reason, true);
+                ApplyPropellerSpeedMultiplier(ship, reason, true);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void UpdatePlayerShipRuntime(PlayerShip ship, string reason)
+        {
+            if (ship == null)
+                return;
+
+            try
+            {
+                PatchShipVelocityCap(ship, reason, false);
+                ApplyPropellerSpeedMultiplier(ship, reason, false);
             }
             catch (Exception ex)
             {
@@ -1533,12 +1568,14 @@ namespace LongSubmerged10x
                         forwardPresets,
                         expectedVelocityPerGear,
                         expectedVelocityPerGearUnderwater,
-                        BasePowerField
+                        BasePowerField,
+                        FuelConsumptionField
                     );
                     OriginalData.Add(engine, data);
                 }
 
                 ApplyTopGearBasePower(forwardPresets, data.ForwardBasePower);
+                ApplyTopGearFuelConsumption(forwardPresets, data.ForwardFuelConsumption);
                 ApplyTopGearFloatArray(expectedVelocityPerGear, data.ExpectedVelocityPerGear);
                 ApplyTopGearFloatArray(expectedVelocityPerGearUnderwater, data.ExpectedVelocityPerGearUnderwater);
 
@@ -1555,7 +1592,8 @@ namespace LongSubmerged10x
             return ForwardPresetsField != null
                 && ExpectedVelocityPerGearField != null
                 && ExpectedVelocityPerGearUnderwaterField != null
-                && BasePowerField != null;
+                && BasePowerField != null
+                && FuelConsumptionField != null;
         }
 
         private static void ApplyTopGearBasePower(Array forwardPresets, float[] originalBasePower)
@@ -1577,6 +1615,25 @@ namespace LongSubmerged10x
             }
         }
 
+        private static void ApplyTopGearFuelConsumption(Array forwardPresets, float[] originalFuelConsumption)
+        {
+            if (forwardPresets == null || originalFuelConsumption == null)
+                return;
+
+            int patchCount = Math.Min(FastForwardGearCount, Math.Min(forwardPresets.Length, originalFuelConsumption.Length));
+            int firstPatchedGear = forwardPresets.Length - patchCount;
+
+            for (int index = firstPatchedGear; index < forwardPresets.Length; index++)
+            {
+                object preset = forwardPresets.GetValue(index);
+                if (preset == null)
+                    continue;
+
+                FuelConsumptionField.SetValue(preset, originalFuelConsumption[index] * FastSpeedFuelFactor);
+                forwardPresets.SetValue(preset, index);
+            }
+        }
+
         private static void ApplyTopGearFloatArray(float[] target, float[] original)
         {
             if (target == null || original == null)
@@ -1587,6 +1644,111 @@ namespace LongSubmerged10x
 
             for (int index = firstPatchedGear; index < target.Length; index++)
                 target[index] = original[index] * FastSpeedFactor;
+        }
+
+        private static void PatchShipVelocityCap(PlayerShip ship, string reason, bool verboseLog)
+        {
+            if (ship == null || ship.Blueprint == null || ship.Blueprint.Velocity == null)
+                return;
+
+            ShipRuntimePatchData data;
+            if (!ShipRuntimeData.TryGetValue(ship, out data))
+            {
+                float originalVelocity = ship.Blueprint.Velocity;
+                Modifier modifier = null;
+
+                if (originalVelocity < PlayerSubmarineMaxSpeed)
+                    modifier = ship.Blueprint.Velocity.AddDeltaModifier(RuntimeVelocityModifierName, false);
+
+                data = new ShipRuntimePatchData(originalVelocity, modifier);
+                ShipRuntimeData.Add(ship, data);
+            }
+
+            if (data.VelocityModifier == null)
+                return;
+
+            float desiredDelta = PlayerSubmarineMaxSpeed - data.OriginalVelocity;
+            if (desiredDelta < 0f)
+                desiredDelta = 0f;
+
+            if (Math.Abs(data.VelocityModifier.Value - desiredDelta) > 0.001f)
+                data.VelocityModifier.Value = desiredDelta;
+
+            if (verboseLog)
+            {
+                Debug.Log(
+                    "[LongSubmerged10x] Player ship speed cap patched after "
+                    + reason
+                    + ": "
+                    + data.OriginalVelocity
+                    + " -> "
+                    + PlayerSubmarineMaxSpeed
+                    + " km/h."
+                );
+            }
+        }
+
+        private static void ApplyPropellerSpeedMultiplier(PlayerShip ship, string reason, bool verboseLog)
+        {
+            if (ship == null)
+                return;
+
+            Propeller[] propellers = ShipPropellersField == null
+                ? ship.Propellers
+                : ShipPropellersField.GetValue(ship) as Propeller[];
+
+            if (propellers == null || propellers.Length == 0)
+                return;
+
+            bool fastForwardGear = IsActiveEngineInFastForwardGear(ship);
+            float appliedFactor = fastForwardGear ? FastSpeedFactor : 1f;
+            int changedCount = 0;
+
+            foreach (Propeller propeller in propellers)
+            {
+                if (propeller == null)
+                    continue;
+
+                PropellerPatchData data;
+                if (!PropellerRuntimeData.TryGetValue(propeller, out data))
+                {
+                    data = new PropellerPatchData(propeller.PowerMultiplier);
+                    PropellerRuntimeData.Add(propeller, data);
+                }
+
+                float desiredMultiplier = data.OriginalPowerMultiplier * appliedFactor;
+
+                if (Math.Abs(propeller.PowerMultiplier - desiredMultiplier) > 0.001f)
+                {
+                    propeller.PowerMultiplier = desiredMultiplier;
+                    changedCount++;
+                }
+            }
+
+            if (verboseLog && changedCount > 0)
+            {
+                Debug.Log(
+                    "[LongSubmerged10x] Propeller multiplier "
+                    + appliedFactor
+                    + " applied after "
+                    + reason
+                    + "."
+                );
+            }
+        }
+
+        private static bool IsActiveEngineInFastForwardGear(PlayerShip ship)
+        {
+            PlayerShipEngine engine = ship.ActiveEngine;
+            if (engine == null || engine.GearIndex <= 0 || ForwardPresetsField == null)
+                return false;
+
+            Array forwardPresets = ForwardPresetsField.GetValue(engine) as Array;
+            if (forwardPresets == null || forwardPresets.Length < FastForwardGearCount)
+                return false;
+
+            int firstFastGearIndex = forwardPresets.Length - FastForwardGearCount + 1;
+            return engine.GearIndex >= firstFastGearIndex;
         }
 
         private static void WarnOnce(PlayerShipEngine engine, string message)
@@ -1600,15 +1762,18 @@ namespace LongSubmerged10x
     internal sealed class EngineSpeedPatchData
     {
         public readonly float[] ForwardBasePower;
+        public readonly float[] ForwardFuelConsumption;
         public readonly float[] ExpectedVelocityPerGear;
         public readonly float[] ExpectedVelocityPerGearUnderwater;
 
         private EngineSpeedPatchData(
             float[] forwardBasePower,
+            float[] forwardFuelConsumption,
             float[] expectedVelocityPerGear,
             float[] expectedVelocityPerGearUnderwater)
         {
             ForwardBasePower = forwardBasePower;
+            ForwardFuelConsumption = forwardFuelConsumption;
             ExpectedVelocityPerGear = expectedVelocityPerGear;
             ExpectedVelocityPerGearUnderwater = expectedVelocityPerGearUnderwater;
         }
@@ -1617,9 +1782,11 @@ namespace LongSubmerged10x
             Array forwardPresets,
             float[] expectedVelocityPerGear,
             float[] expectedVelocityPerGearUnderwater,
-            FieldInfo basePowerField)
+            FieldInfo basePowerField,
+            FieldInfo fuelConsumptionField)
         {
             float[] basePower = new float[forwardPresets.Length];
+            float[] fuelConsumption = new float[forwardPresets.Length];
 
             for (int index = 0; index < forwardPresets.Length; index++)
             {
@@ -1630,10 +1797,15 @@ namespace LongSubmerged10x
                 object rawValue = basePowerField.GetValue(preset);
                 if (rawValue is float)
                     basePower[index] = (float)rawValue;
+
+                object rawFuelConsumption = fuelConsumptionField.GetValue(preset);
+                if (rawFuelConsumption is float)
+                    fuelConsumption[index] = (float)rawFuelConsumption;
             }
 
             return new EngineSpeedPatchData(
                 basePower,
+                fuelConsumption,
                 CloneFloatArray(expectedVelocityPerGear),
                 CloneFloatArray(expectedVelocityPerGearUnderwater)
             );
@@ -1650,6 +1822,28 @@ namespace LongSubmerged10x
         }
     }
 
+    internal sealed class ShipRuntimePatchData
+    {
+        public readonly float OriginalVelocity;
+        public readonly Modifier VelocityModifier;
+
+        public ShipRuntimePatchData(float originalVelocity, Modifier velocityModifier)
+        {
+            OriginalVelocity = originalVelocity;
+            VelocityModifier = velocityModifier;
+        }
+    }
+
+    internal sealed class PropellerPatchData
+    {
+        public readonly float OriginalPowerMultiplier;
+
+        public PropellerPatchData(float originalPowerMultiplier)
+        {
+            OriginalPowerMultiplier = originalPowerMultiplier;
+        }
+    }
+
     [HarmonyPatch(typeof(PlayerShip), "Awake")]
     internal static class PlayerShipAwakePatch
     {
@@ -1657,6 +1851,24 @@ namespace LongSubmerged10x
         {
             OxygenBreathRecalculator.Recalculate(__instance, "PlayerShip.Awake");
             EngineFastSpeedPatcher.PatchPlayerShip(__instance, "PlayerShip.Awake");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "OnAfterDeserialize")]
+    internal static class PlayerShipOnAfterDeserializePatch
+    {
+        private static void Postfix(PlayerShip __instance)
+        {
+            EngineFastSpeedPatcher.PatchPlayerShip(__instance, "PlayerShip.OnAfterDeserialize");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "ValidateTargetVelocity")]
+    internal static class PlayerShipValidateTargetVelocityPatch
+    {
+        private static void Postfix(PlayerShip __instance)
+        {
+            EngineFastSpeedPatcher.UpdatePlayerShipRuntime(__instance, "PlayerShip.ValidateTargetVelocity");
         }
     }
 
@@ -1718,13 +1930,16 @@ namespace LongSubmerged10x
 '''
 
     source = source.replace("__FAST_SPEED_FACTOR__", format_csharp_float(args.fast_speed_factor))
+    source = source.replace("__FAST_SPEED_FUEL_FACTOR__", format_csharp_float(args.fast_speed_fuel_factor))
+    source = source.replace("__PLAYER_SUBMARINE_MAX_SPEED__", format_csharp_float(args.player_submarine_max_speed))
     source = source.replace("__FAST_FORWARD_GEAR_COUNT__", str(args.fast_speed_top_gears))
 
     source_path.write_text(source, encoding="utf-8")
     report.file(source_path)
     report.note(
         "Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, "
-        "chargement de sauvegarde et changement d'equipage, plus vitesse rapide moteur."
+        "chargement de sauvegarde et changement d'equipage, plus vitesse rapide, "
+        "plafond runtime, propulseurs et carburant rapide."
     )
 
 
@@ -1738,12 +1953,13 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Discipline/fatigue sous l'eau : divisé par {args.discipline_factor:g}",
         f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
         f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}",
-        f"- EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}",
-        f"- Deux derniers crans avant : x{args.fast_speed_factor:g}",
+        "- EnergyUsage recharge/production batterie : vanilla",
+        f"- Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}",
+        f"- Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
-        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement et crans rapides moteur",
+        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, propulseurs et carburant rapide",
         "",
         "Installation :",
         "1. Fermer UBOAT.",
@@ -1757,7 +1973,10 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
+        "- Les crans rapides consomment plus de carburant pour garder une autonomie logique.",
+        "- La recharge diesel reste vanilla pour éviter une recharge batterie instantanée.",
         "- Le plafond de vitesse inclut les Type IX officiels du DLC Steam quand le DLC est installe.",
+        "- Compatible sauvegarde existante après fermeture complète puis relance du jeu.",
         "- Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.",
     ]
 
@@ -1912,7 +2131,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--fast-speed-factor",
         type=float,
         default=DEFAULT_FAST_SPEED_FACTOR,
-        help="Multiplicateur des derniers crans rapides de marche avant. Défaut : 2.",
+        help="Multiplicateur vitesse/propulsion des derniers crans rapides de marche avant. Défaut : 3.5.",
+    )
+
+    parser.add_argument(
+        "--fast-speed-fuel-factor",
+        type=float,
+        default=DEFAULT_FAST_SPEED_FUEL_FACTOR,
+        help="Multiplicateur carburant des derniers crans rapides de marche avant. Défaut : 8.",
     )
 
     parser.add_argument(
@@ -1973,6 +2199,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "battery_capacity_factor",
         "energy_usage_factor",
         "fast_speed_factor",
+        "fast_speed_fuel_factor",
         "player_submarine_max_speed",
         "ventilation_gain_factor",
         "potassium_duration_factor",
@@ -2132,8 +2359,9 @@ def main(argv: list[str]) -> int:
     print(f"  - Discipline/fatigue : /{args.discipline_factor:g}")
     print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
     print(f"  - EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}")
-    print(f"  - EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}")
-    print(f"  - Deux derniers crans avant : x{args.fast_speed_factor:g}")
+    print("  - EnergyUsage recharge/production batterie : vanilla")
+    print(f"  - Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}")
+    print(f"  - Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}")
     print(f"  - Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h")
     print(f"  - Ventilation vanilla : {'NON, patchée' if args.patch_ventilation else 'OUI, laissée normale'}")
 

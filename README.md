@@ -7,13 +7,14 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
 - Batterie beaucoup plus longue :
   - capacité des accumulateurs multipliée par 10 ;
   - consommation électrique des équipements principaux réduite ;
-  - recharge/production batterie compensée pour garder un temps de recharge normal.
+  - recharge/production batterie laissée vanilla pour éviter une recharge instantanée.
 - Air / oxygène beaucoup plus long :
   - `Oxygen Consumption Per Character` est divisé par 125 ;
   - le mod vise environ 7 à 8 jours d'air sur une sauvegarde déjà en cours.
 - Vitesse rapide améliorée :
-  - les deux crans avant les plus rapides sont renforcés pour viser environ 40/45 km/h ;
-  - le plafond de vitesse des sous-marins joueur est relevé à 45 km/h ;
+  - les deux crans avant les plus rapides renforcent les vitesses attendues et la propulsion réelle ;
+  - le plafond runtime et datasheet des sous-marins joueur est relevé à 45 km/h ;
+  - la consommation carburant des deux crans rapides est augmentée pour garder une autonomie logique ;
   - les Type IX officiels du DLC Steam sont inclus quand le DLC est installé ;
   - les vitesses lentes et mi-vitesse restent vanilla pour garder la manoeuvre fine.
 - Discipline et fatigue adaptées à l'immersion longue :
@@ -22,7 +23,8 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
   - la ligne `Ventilation` n'est plus modifiée par défaut pour éviter les bugs vus dans les essais précédents.
 - Patch runtime AirFix :
   - UBOAT garde parfois l'ancien modifier d'oxygène sur une sauvegarde existante ;
-  - le patch Harmony force le recalcul de `OxygenBreathModifier` après chargement, `Awake`, ajout ou retrait d'équipage.
+  - le patch Harmony force le recalcul de `OxygenBreathModifier` après chargement, `Awake`, ajout ou retrait d'équipage ;
+  - le patch Harmony corrige aussi le plafond de vitesse, les propulseurs et les consommations rapides sur sauvegarde existante.
 
 ## Installation rapide
 
@@ -65,8 +67,9 @@ Options principales :
 - `--oxygen-consumption-factor 125` : divise la consommation d'oxygène par 125.
 - `--battery-capacity-factor 10` : multiplie les accumulateurs par 10.
 - `--energy-usage-factor 0.1` : réduit seulement la consommation électrique positive des équipements.
-- Les lignes `EnergyUsage` négatives, utilisées pour la recharge/production batterie, sont multipliées par le facteur batterie pour éviter une recharge complète dix fois plus longue.
-- `--fast-speed-factor 3.5` : renforce les crans rapides de marche avant.
+- Les lignes `EnergyUsage` négatives, utilisées pour la recharge/production batterie, restent vanilla.
+- `--fast-speed-factor 3.5` : renforce la vitesse attendue et la propulsion des crans rapides de marche avant.
+- `--fast-speed-fuel-factor 8` : augmente la consommation carburant des crans rapides.
 - `--fast-speed-top-gears 2` : applique le boost uniquement aux deux derniers crans avant.
 - `--player-submarine-max-speed 45` : relève le plafond des sous-marins joueur à 45 km/h.
 - Le générateur lit aussi `UBOAT_Data/StreamingAssets/Packages/uboat.dlc.type-ix/Data Sheets` quand le DLC Type IX officiel est présent.

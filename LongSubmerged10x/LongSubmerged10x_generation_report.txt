@@ -2,7 +2,6 @@
 
 Compteurs :
 - battery_capacity_rows: 3
-- energy_recharge_rows: 2
 - energy_usage_rows: 6
 - general_oxygen_consumption_rows: 2
 - player_submarine_speed_rows: 8
@@ -14,7 +13,7 @@ Fichiers générés :
 - C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\LongSubmerged10x\Data Sheets\Entities.xlsx
 
 Changements :
-- Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, chargement de sauvegarde et changement d'equipage, plus vitesse rapide moteur.
+- Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, chargement de sauvegarde et changement d'equipage, plus vitesse rapide, plafond runtime, propulseurs et carburant rapide.
 - General.xlsx / Settings / Underwater Discipline Loss: Normal: 1e-05 -> 6.666666666666667e-07; Hard: 1e-05 -> 6.666666666666667e-07; Very Hard: 1e-05 -> 6.666666666666667e-07 | Discipline sous l'eau environ 15x moins punitive.
 - General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
 - General.xlsx / Settings / Fatigue - Max Penalty: Normal: -0.00012 -> -8e-06; Hard: -0.000155 -> -1.0333333333333333e-05; Very Hard: -0.0002 -> -1.3333333333333333e-05 | Pénalité maximale de fatigue réduite proportionnellement.
@@ -34,8 +33,6 @@ Changements :
 - Entities.xlsx / Equipment / Trim Pump | Trim Pump | 0 | 1939-01-01 00:00:00 | 3 | 0.5: EnergyUsage: 0.0002 -> 2e-05
 - Entities.xlsx / Equipment / Trim Pump Type II | Trim Pump Type II | 0 | 1939-01-01 00:00:00 | 3 | 0.5: EnergyUsage: 0.0002 -> 2e-05
 - Entities.xlsx / Equipment / Depth Steers Station | 0 | 1939-01-01 00:00:00 | 1 | 0.6: EnergyUsage: 0.01 -> 0.001
-- Entities.xlsx / Equipment / Diesel Engines | Engines, Diesel Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.4: EnergyUsage: -1.0 -> -10
-- Entities.xlsx / Equipment / Diesel Engines IIA | Engines, Diesel Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.4: EnergyUsage: -1.0 -> -10
 - Entities.xlsx / Equipment / Electric Engines | Engines, Electric Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Electric Engines IIA | Engines, Electric Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Gyrocompass | Gyrocompass | 0 | 1939-01-01 00:00:00 | 1 | 1: EnergyUsage: 0.000015 -> 1.5e-06
