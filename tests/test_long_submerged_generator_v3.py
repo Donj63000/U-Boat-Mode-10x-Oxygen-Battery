@@ -106,7 +106,7 @@ class LongSubmergedGeneratorV3Tests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.2.0")
+            self.assertEqual(manifest["version"], "1.2.1")
             self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch")
             self.assertIn("Reflection", manifest["permissions"])
             self.assertIn("2026.1 Patch 20", manifest["supportedGameVersions"])
@@ -125,8 +125,8 @@ class LongSubmergedGeneratorV3Tests(unittest.TestCase):
             realistic_oxygen_row = find_row_by_id(realistic_ws, "Oxygen Consumption Per Character")
             discipline_row = find_row_by_id(root_ws, "Underwater Discipline Loss")
 
-            self.assertAlmostEqual(root_ws.cell(root_oxygen_row, 2).value, -0.000009 / 15)
-            self.assertAlmostEqual(realistic_ws.cell(realistic_oxygen_row, 2).value, -0.00000133 / 15)
+            self.assertAlmostEqual(root_ws.cell(root_oxygen_row, 2).value, -0.000009 / 125)
+            self.assertAlmostEqual(realistic_ws.cell(realistic_oxygen_row, 2).value, -0.00000133 / 125)
             self.assertAlmostEqual(root_ws.cell(discipline_row, 2).value, 0.000015 / 15)
             self.assertAlmostEqual(root_ws.cell(discipline_row, 3).value, 0.000016 / 15)
             self.assertAlmostEqual(root_ws.cell(discipline_row, 4).value, 0.000017 / 15)
@@ -145,7 +145,7 @@ class LongSubmergedGeneratorV3Tests(unittest.TestCase):
 
             self.assertIn("250%", entities_ws.cell(accumulator_row, 16).value)
             self.assertIn("EnergyUsage = 3.5e-06", entities_ws.cell(engine_row, 16).value)
-            self.assertIn("AirCapacity = 1500", entities_ws.cell(air_row, 16).value)
+            self.assertIn("AirCapacity = 12500", entities_ws.cell(air_row, 16).value)
 
             report_text = (out_mod / "LongSubmerged10x_generation_report.txt").read_text(encoding="utf-8")
             self.assertIn("air_capacity_parameter_rows: 1", report_text)

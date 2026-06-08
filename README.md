@@ -8,8 +8,8 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
   - capacité des accumulateurs multipliée par 10 ;
   - consommation électrique des équipements principaux réduite.
 - Air / oxygène beaucoup plus long :
-  - `Oxygen Consumption Per Character` est divisé par 15 ;
-  - le mod vise environ 7 à 8 jours d'air dans les conditions de base.
+  - `Oxygen Consumption Per Character` est divisé par 125 ;
+  - le mod vise environ 7 à 8 jours d'air sur une sauvegarde déjà en cours.
 - Discipline et fatigue adaptées à l'immersion longue :
   - les pertes sous l'eau sont réduites proportionnellement.
 - Ventilation laissée vanilla :
@@ -56,7 +56,7 @@ python .\build_uboat_long_submerged_mod_v3_airfix.py --uboat "C:\Program Files (
 
 Options principales :
 
-- `--oxygen-consumption-factor 15` : divise la consommation d'oxygène par 15.
+- `--oxygen-consumption-factor 125` : divise la consommation d'oxygène par 125.
 - `--battery-capacity-factor 10` : multiplie les accumulateurs par 10.
 - `--energy-usage-factor 0.1` : réduit la consommation électrique des équipements.
 - `--clear-cache` : vide le cache local UBOAT `Data Sheets` pour forcer la recompilation.

@@ -1,8 +1,8 @@
-Long Submerged 10x+ v1.2.0
+Long Submerged 10x+ v1.2.1
 
 Paramètres utilisés :
-- Air / atmosphère de base : capacité x15
-- Oxygen Consumption Per Character : divisé par 15
+- Air / atmosphère de base : capacité x125
+- Oxygen Consumption Per Character : divisé par 125
 - Discipline/fatigue sous l'eau : divisé par 15
 - Batterie / Accumulators : x10
 - EnergyUsage équipements hors ventilation/compresseurs : x0.1

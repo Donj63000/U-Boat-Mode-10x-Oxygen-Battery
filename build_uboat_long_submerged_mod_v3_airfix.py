@@ -47,19 +47,19 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.2.0"
+MOD_VERSION = "1.2.1"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
 MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
-# Ton screenshot donne environ 13 h 21 min d'air à 100 %.
-# 13.35 h * 15 = 200 h = 8.3 jours.
-DEFAULT_AIR_CAPACITY_FACTOR = 15.0
+# Ton dernier screenshot donne environ 23 h 27 min d'air à 99 % avec /15 déjà appliqué.
+# 23.46 h * 125 / 15 = 195 h, donc environ 8 jours avec Blue Lighting.
+DEFAULT_AIR_CAPACITY_FACTOR = 125.0
 
 # On garde aussi la baisse de consommation par personnage, mais ce n'est plus le levier principal :
 # certaines versions / configs semblent garder un minimum visible dans l'UI, par exemple "Équipage -4/min".
-DEFAULT_OXYGEN_CONSUMPTION_FACTOR = 15.0
+DEFAULT_OXYGEN_CONSUMPTION_FACTOR = 125.0
 
 # Discipline/fatigue proportionnelles à l'immersion longue.
 DEFAULT_DISCIPLINE_FACTOR = 15.0
@@ -1493,14 +1493,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--air-capacity-factor",
         type=float,
         default=DEFAULT_AIR_CAPACITY_FACTOR,
-        help="Multiplicateur de la réserve d'air/atmosphère. Défaut : 15, soit ~8 jours si vanilla = 13h.",
+        help="Multiplicateur de la réserve d'air/atmosphère. Défaut : 125, pour viser 7 à 8 jours.",
     )
 
     parser.add_argument(
         "--oxygen-consumption-factor",
         type=float,
         default=DEFAULT_OXYGEN_CONSUMPTION_FACTOR,
-        help="Divise Oxygen Consumption Per Character par ce facteur. Défaut : 15.",
+        help="Divise Oxygen Consumption Per Character par ce facteur. Défaut : 125.",
     )
 
     parser.add_argument(
