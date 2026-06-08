@@ -47,7 +47,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.2.4"
+MOD_VERSION = "1.2.5"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
 MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
@@ -110,7 +110,9 @@ class PatchReport:
     counters: dict[str, int] = field(default_factory=dict)
 
     def file(self, path: Path) -> None:
-        self.changed_files.append(str(path))
+        path_text = str(path)
+        if path_text not in self.changed_files:
+            self.changed_files.append(path_text)
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
@@ -233,6 +235,18 @@ def copy_column_widths(src_ws: Worksheet, dst_ws: Worksheet) -> None:
         dst_ws.column_dimensions[key].width = dim.width
 
 
+def find_existing_override_row(dst_ws: Worksheet, source_row_id: Any) -> int | None:
+    row_id = norm_text(source_row_id)
+    if not row_id:
+        return None
+
+    for row in range(1, dst_ws.max_row + 1):
+        if norm_text(dst_ws.cell(row, 1).value) == row_id:
+            return row
+
+    return None
+
+
 def get_sheet_case_insensitive(workbook: Workbook, wanted_name: str) -> Worksheet | None:
     wanted = norm_text(wanted_name)
     for name in workbook.sheetnames:
@@ -282,6 +296,18 @@ def find_datasheet_files(data_sheets_dir: Path, filename: str | None = None) -> 
             continue
         files.append(path)
     return sorted(files, key=lambda p: str(p.relative_to(data_sheets_dir)).lower())
+
+
+def find_type_ix_dlc_data_sheets_dir(uboat_root: Path) -> Path | None:
+    data_sheets = (
+        uboat_root
+        / "UBOAT_Data"
+        / "StreamingAssets"
+        / "Packages"
+        / "uboat.dlc.type-ix"
+        / "Data Sheets"
+    )
+    return data_sheets if data_sheets.exists() else None
 
 
 def unique_preserve_order(values: Iterable[str]) -> list[str]:
@@ -1259,18 +1285,21 @@ def create_generic_xlsx_override(
     vanilla_xlsx: Path,
     output_xlsx: Path,
     report: PatchReport,
-    data_sheets_dir: Path,
+    source_root: Path,
     args: argparse.Namespace,
 ) -> bool:
     """
     Patch générique pour tous les fichiers XLSX sauf General.xlsx/Settings.
     Crée un override minimal avec seulement les feuilles/lignes modifiées.
     """
-    source_label = str(vanilla_xlsx.relative_to(data_sheets_dir))
+    source_label = str(vanilla_xlsx.relative_to(source_root))
     src_wb = load_workbook(vanilla_xlsx, data_only=False)
 
-    out_wb = Workbook()
-    out_wb.remove(out_wb.active)
+    if output_xlsx.exists():
+        out_wb = load_workbook(output_xlsx, data_only=False)
+    else:
+        out_wb = Workbook()
+        out_wb.remove(out_wb.active)
 
     total_rows_changed = 0
 
@@ -1283,17 +1312,22 @@ def create_generic_xlsx_override(
 
         header_row = find_header_row(src_ws)
 
-        out_ws = out_wb.create_sheet(title=sheet_name)
-        copy_column_widths(src_ws, out_ws)
+        out_ws = get_sheet_case_insensitive(out_wb, sheet_name)
+        if out_ws is None:
+            out_ws = out_wb.create_sheet(title=sheet_name)
+            copy_column_widths(src_ws, out_ws)
 
-        dest_row = 1
-
-        # Copie les en-têtes nécessaires.
-        for src_header_row in range(1, header_row + 1):
-            copy_row(src_ws, out_ws, src_header_row, dest_row)
-            dest_row += 1
+            # Je copie les en-tetes une seule fois, puis j'ajoute les lignes modifiees.
+            dest_row = 1
+            for src_header_row in range(1, header_row + 1):
+                copy_row(src_ws, out_ws, src_header_row, dest_row)
+                dest_row += 1
 
         for modified in sorted(modified_rows, key=lambda item: item.source_row):
+            source_row_id = src_ws.cell(modified.source_row, 1).value
+            existing_row = find_existing_override_row(out_ws, source_row_id)
+            dest_row = existing_row if existing_row is not None else out_ws.max_row + 1
+
             copy_row(src_ws, out_ws, modified.source_row, dest_row)
 
             for col, new_value in modified.new_values_by_col.items():
@@ -1304,7 +1338,6 @@ def create_generic_xlsx_override(
                 + "; ".join(modified.changes)
             )
 
-            dest_row += 1
             total_rows_changed += 1
 
     if total_rows_changed == 0:
@@ -1708,6 +1741,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}",
         f"- Deux derniers crans avant : x{args.fast_speed_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
+        "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
         f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement et crans rapides moteur",
         "",
@@ -1723,6 +1757,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
+        "- Le plafond de vitesse inclut les Type IX officiels du DLC Steam quand le DLC est installe.",
         "- Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.",
     ]
 
@@ -2014,6 +2049,10 @@ def main(argv: list[str]) -> int:
             "Sandbox.xlsx",
             "CharacterClasses.xlsx",
         )
+        type_ix_dlc_data_sheets = find_type_ix_dlc_data_sheets_dir(uboat_root)
+
+        if type_ix_dlc_data_sheets is not None:
+            report.note(f"DLC Type IX detecte : {type_ix_dlc_data_sheets}")
 
         for target_name in generic_targets:
             for vanilla_xlsx in find_datasheet_files(data_sheets_dir, target_name):
@@ -2025,6 +2064,22 @@ def main(argv: list[str]) -> int:
                     output_xlsx,
                     report,
                     data_sheets_dir,
+                    args,
+                ):
+                    generic_changed += 1
+
+            if type_ix_dlc_data_sheets is None:
+                continue
+
+            for dlc_xlsx in find_datasheet_files(type_ix_dlc_data_sheets, target_name):
+                relative = dlc_xlsx.relative_to(type_ix_dlc_data_sheets)
+                output_xlsx = out_data_sheets / relative
+
+                if create_generic_xlsx_override(
+                    dlc_xlsx,
+                    output_xlsx,
+                    report,
+                    type_ix_dlc_data_sheets,
                     args,
                 ):
                     generic_changed += 1

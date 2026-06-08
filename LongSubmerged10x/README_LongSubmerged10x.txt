@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.2.4
+Long Submerged 10x+ v1.2.5
 
 Paramètres utilisés :
 - Air / atmosphère de base : capacité x125
@@ -9,6 +9,7 @@ Paramètres utilisés :
 - EnergyUsage recharge/production batterie : x10
 - Deux derniers crans avant : x3.5
 - Vitesse max sous-marin joueur : 45 km/h
+- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
 - Patch runtime : LongSubmerged10xPatch, air apres chargement et crans rapides moteur
 
@@ -24,6 +25,7 @@ Notes :
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.
 - Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.
+- Le plafond de vitesse inclut les Type IX officiels du DLC Steam quand le DLC est installe.
 - Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.
 
 Compteurs de génération :
@@ -33,4 +35,4 @@ Compteurs de génération :
 - Lignes batterie : 3
 - Lignes EnergyUsage consommation : 6
 - Lignes EnergyUsage recharge : 2
-- Lignes vitesse sous-marin joueur : 5
+- Lignes vitesse sous-marin joueur : 8

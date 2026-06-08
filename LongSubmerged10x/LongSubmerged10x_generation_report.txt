@@ -5,7 +5,7 @@ Compteurs :
 - energy_recharge_rows: 2
 - energy_usage_rows: 6
 - general_oxygen_consumption_rows: 2
-- player_submarine_speed_rows: 5
+- player_submarine_speed_rows: 8
 
 Fichiers générés :
 - C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\LongSubmerged10x\Source\LongSubmergedRuntimePatch.cs
@@ -22,6 +22,7 @@ Changements :
 - Realistic Travel\General.xlsx / Settings / Underwater Discipline Loss: Normal: 8.5e-05 -> 5.666666666666667e-06; Hard: 8.5e-05 -> 5.666666666666667e-06; Very Hard: 8.5e-05 -> 5.666666666666667e-06 | Discipline sous l'eau environ 15x moins punitive.
 - Realistic Travel\General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
 - Realistic Travel\General.xlsx / Settings / Oxygen Consumption Per Character: Value: -1.33e-06 -> -1.064e-08 | Consommation air/qualité d'air divisée par 125. Ce n'est plus le seul levier, car l'UI peut garder un minimum affiché.
+- DLC Type IX detecte : C:\Program Files (x86)\Steam\steamapps\common\UBOAT\UBOAT_Data\StreamingAssets\Packages\uboat.dlc.type-ix\Data Sheets
 - Entities.xlsx / Types / Type IIA (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type IID (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type VIIB (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
@@ -38,6 +39,9 @@ Changements :
 - Entities.xlsx / Equipment / Electric Engines | Engines, Electric Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Electric Engines IIA | Engines, Electric Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Gyrocompass | Gyrocompass | 0 | 1939-01-01 00:00:00 | 1 | 1: EnergyUsage: 0.000015 -> 1.5e-06
+- Entities.xlsx / Types / Type IXA (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
+- Entities.xlsx / Types / Type IXC (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
+- Entities.xlsx / Types / Type IXC40 (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Cache
 - Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Data Sheets
 - Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Temp

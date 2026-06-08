@@ -67,6 +67,19 @@ def make_entities_workbook(path: Path) -> None:
     wb.save(path)
 
 
+def make_type_ix_dlc_entities_workbook(path: Path) -> None:
+    wb = Workbook()
+    ws_types = wb.active
+    ws_types.title = "Types"
+    ws_types.append([None, None, None, "Displacement (t)"])
+    ws_types.append(["/", "Category", "Speed (km/h)", "Standard", "Full"])
+    ws_types.append(["Type IXC", "Submarine", 32.8, 1120, 1232])
+    ws_types.append(["Type IXC (Player)", "Submarine", 32.8, 1120, 1232])
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
 def make_crew_workbook(path: Path) -> None:
     wb = Workbook()
     ws = wb.active
@@ -97,6 +110,15 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             make_general_workbook(data_sheets / "General.xlsx", -0.000009)
             make_general_workbook(data_sheets / "Realistic Travel" / "General.xlsx", -0.00000133)
             make_entities_workbook(data_sheets / "Entities.xlsx")
+            make_type_ix_dlc_entities_workbook(
+                uboat_root
+                / "UBOAT_Data"
+                / "StreamingAssets"
+                / "Packages"
+                / "uboat.dlc.type-ix"
+                / "Data Sheets"
+                / "Entities.xlsx"
+            )
             make_crew_workbook(data_sheets / "Crew.xlsx")
 
             exit_code = generator.main(
@@ -114,7 +136,7 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.2.4")
+            self.assertEqual(manifest["version"], "1.2.5")
             self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch")
             self.assertIn("Reflection", manifest["permissions"])
             self.assertIn("2026.1 Patch 20", manifest["supportedGameVersions"])
@@ -170,12 +192,17 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             report_text = (out_mod / "LongSubmerged10x_generation_report.txt").read_text(encoding="utf-8")
             self.assertIn("air_capacity_parameter_rows: 1", report_text)
             self.assertIn("energy_recharge_rows: 1", report_text)
-            self.assertIn("player_submarine_speed_rows: 1", report_text)
+            self.assertIn("player_submarine_speed_rows: 2", report_text)
+            self.assertIn("DLC Type IX detecte", report_text)
 
             types_ws = load_workbook(out_mod / "Data Sheets" / "Entities.xlsx", data_only=False)["Types"]
             player_type_row = find_row_by_id(types_ws, "Type VIIC (Player)")
+            type_ix_player_row = find_row_by_id(types_ws, "Type IXC (Player)")
             self.assertEqual(types_ws.cell(player_type_row, 3).value, 45)
-            self.assertNotIn("Type VIIC", [types_ws.cell(row, 1).value for row in range(3, types_ws.max_row + 1) if row != player_type_row])
+            self.assertEqual(types_ws.cell(type_ix_player_row, 3).value, 45)
+            generated_type_ids = [types_ws.cell(row, 1).value for row in range(3, types_ws.max_row + 1)]
+            self.assertNotIn("Type VIIC", generated_type_ids)
+            self.assertNotIn("Type IXC", generated_type_ids)
 
 
 if __name__ == "__main__":

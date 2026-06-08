@@ -14,6 +14,7 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
 - Vitesse rapide améliorée :
   - les deux crans avant les plus rapides sont renforcés pour viser environ 40/45 km/h ;
   - le plafond de vitesse des sous-marins joueur est relevé à 45 km/h ;
+  - les Type IX officiels du DLC Steam sont inclus quand le DLC est installé ;
   - les vitesses lentes et mi-vitesse restent vanilla pour garder la manoeuvre fine.
 - Discipline et fatigue adaptées à l'immersion longue :
   - les pertes sous l'eau sont réduites proportionnellement.
@@ -68,6 +69,7 @@ Options principales :
 - `--fast-speed-factor 3.5` : renforce les crans rapides de marche avant.
 - `--fast-speed-top-gears 2` : applique le boost uniquement aux deux derniers crans avant.
 - `--player-submarine-max-speed 45` : relève le plafond des sous-marins joueur à 45 km/h.
+- Le générateur lit aussi `UBOAT_Data/StreamingAssets/Packages/uboat.dlc.type-ix/Data Sheets` quand le DLC Type IX officiel est présent.
 - `--clear-cache` : vide le cache local UBOAT `Data Sheets` pour forcer la recompilation.
 
 ## Structure du dépôt
