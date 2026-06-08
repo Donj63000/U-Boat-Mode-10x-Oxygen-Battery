@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+
+# Builds .NET de l'outil d'inspection local.
+tools/**/bin/
+tools/**/obj/
+
+# Artefacts locaux temporaires.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.tmp
+*.log
+
+# DLL compilees par UBOAT au lancement du mod.
+*.dll
+*.dll.mdb

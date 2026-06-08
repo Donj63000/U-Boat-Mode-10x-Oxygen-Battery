@@ -1,0 +1,17 @@
+{
+  "name": "Long Submerged 10x+",
+  "version": "1.2.0",
+  "description": "Immersion longue : air de base x15, conso air x1/15, discipline x1/15, batterie x10, EnergyUsage x0.1. v3 garde la ventilation vanilla par défaut.",
+  "author": "VotreNomOuVotreEquipe",
+  "minGameVersion": "2026.1",
+  "maxGameVersion": "",
+  "supportedGameVersions": [
+    "2026.1 Patch 20",
+    "2026.1"
+  ],
+  "assemblyName": "LongSubmerged10xPatch",
+  "permissions": [
+    "Reflection"
+  ],
+  "steamFileId": 0
+}

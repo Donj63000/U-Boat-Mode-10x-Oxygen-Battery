@@ -1,0 +1,89 @@
+# UBOAT - Long Submerged 10x+
+
+Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus longtemps sans casser la batterie ni la ventilation.
+
+## Ce que fait le mod
+
+- Batterie beaucoup plus longue :
+  - capacité des accumulateurs multipliée par 10 ;
+  - consommation électrique des équipements principaux réduite.
+- Air / oxygène beaucoup plus long :
+  - `Oxygen Consumption Per Character` est divisé par 15 ;
+  - le mod vise environ 7 à 8 jours d'air dans les conditions de base.
+- Discipline et fatigue adaptées à l'immersion longue :
+  - les pertes sous l'eau sont réduites proportionnellement.
+- Ventilation laissée vanilla :
+  - la ligne `Ventilation` n'est plus modifiée par défaut pour éviter les bugs de la v2.
+- Patch runtime AirFix :
+  - UBOAT garde parfois l'ancien modifier d'oxygène sur une sauvegarde existante ;
+  - le patch Harmony force le recalcul de `OxygenBreathModifier` après chargement, `Awake`, ajout ou retrait d'équipage.
+
+## Installation rapide
+
+1. Fermer complètement UBOAT.
+2. Télécharger ce dépôt en ZIP ou cloner le dépôt.
+3. Copier le dossier `LongSubmerged10x` dans :
+
+```text
+%USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\
+```
+
+4. Lancer UBOAT.
+5. Activer **Long Submerged 10x+** dans le launcher.
+6. Le placer après les autres mods qui modifient `General.xlsx`, `Entities.xlsx` ou `U-boat.xlsx`.
+7. Charger une sauvegarde existante ou lancer une nouvelle carrière.
+
+Après le premier lancement, UBOAT compile les fichiers du mod et régénère son cache `Data Sheets`.
+
+## Test en jeu
+
+Pour vérifier que le mod fonctionne :
+
+1. Charger une partie.
+2. Plonger avec une qualité d'air proche de 100 %.
+3. Ouvrir le tooltip de qualité de l'air.
+4. La durée ne doit plus rester autour de 13 heures.
+5. Si le tooltip affiche encore `Équipage -4/min`, fermer UBOAT, vérifier que le mod est bien activé et placé après les autres mods, puis relancer.
+
+## Générer le mod depuis les sources
+
+Le dossier prêt à installer est déjà inclus dans `LongSubmerged10x/`. Pour le régénérer depuis les fichiers vanilla de ton installation UBOAT :
+
+```powershell
+python -m pip install -r requirements.txt
+python .\build_uboat_long_submerged_mod_v3_airfix.py --uboat "C:\Program Files (x86)\Steam\steamapps\common\UBOAT" --force --clear-cache
+```
+
+Options principales :
+
+- `--oxygen-consumption-factor 15` : divise la consommation d'oxygène par 15.
+- `--battery-capacity-factor 10` : multiplie les accumulateurs par 10.
+- `--energy-usage-factor 0.1` : réduit la consommation électrique des équipements.
+- `--clear-cache` : vide le cache local UBOAT `Data Sheets` pour forcer la recompilation.
+
+## Structure du dépôt
+
+- `LongSubmerged10x/` : mod prêt à installer.
+- `build_uboat_long_submerged_mod_v3_airfix.py` : générateur actuel à utiliser.
+- `build_uboat_long_submerged_mod.py` et `build_uboat_long_submerged_mod_v2.py` : anciennes versions conservées pour historique et tests.
+- `tests/` : tests unitaires du générateur.
+- `tools/AssemblyInspector/` : outil local d'inspection IL utilisé pour comprendre le chargement des datasheets et le recalcul d'oxygène.
+
+## Vérifications effectuées
+
+- Tests unitaires Python : `python -m unittest discover -s tests -v`.
+- Compilation du patch runtime C# contre les DLL UBOAT :
+  - `com.uboat.game.dll`
+  - `0Harmony.dll`
+  - `UnityEngine.dll`
+  - `UnityEngine.CoreModule.dll`
+- Vérification des valeurs générées dans :
+  - `Data Sheets/General.xlsx`
+  - `Data Sheets/Realistic Travel/General.xlsx`
+  - `Data Sheets/Entities.xlsx`
+
+## Notes
+
+Ce mod est prévu pour **UBOAT 2026.1 Patch 20**. Il peut fonctionner sur d'autres versions 2026.1, mais les datasheets et les assemblies du jeu peuvent changer après une mise à jour.
+
+Si un autre mod touche l'air, la batterie ou les mêmes fichiers datasheets, l'ordre de chargement est important.
