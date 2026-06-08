@@ -57,7 +57,7 @@ namespace LongSubmerged10x
 
     internal static class EngineFastSpeedPatcher
     {
-        private const float FastSpeedFactor = 2f;
+        private const float FastSpeedFactor = 3.5f;
         private const int FastForwardGearCount = 2;
 
         private static readonly FieldInfo ForwardPresetsField =

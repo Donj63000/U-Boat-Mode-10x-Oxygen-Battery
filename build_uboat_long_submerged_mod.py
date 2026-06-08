@@ -47,7 +47,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.2.3"
+MOD_VERSION = "1.2.4"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
 MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
@@ -69,8 +69,9 @@ DEFAULT_BATTERY_CAPACITY_FACTOR = 10.0
 DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR = 0.10
 
 # Vitesse : seuls les deux derniers crans avant sont boostes.
-DEFAULT_FAST_SPEED_FACTOR = 2.0
+DEFAULT_FAST_SPEED_FACTOR = 3.5
 DEFAULT_FAST_SPEED_TOP_GEARS = 2
+DEFAULT_PLAYER_SUBMARINE_MAX_SPEED = 45.0
 
 # IMPORTANT :
 # On ne modifie plus la ventilation par défaut.
@@ -1137,6 +1138,49 @@ def patch_simple_air_capacity_cells(
     return values_by_col, changes, {"air_capacity_cell_rows": 1}
 
 
+def patch_player_submarine_speed_cells(
+    ws: Worksheet,
+    row: int,
+    header_row: int,
+    args: argparse.Namespace,
+) -> tuple[dict[int, Any], list[str], dict[str, int]]:
+    if norm_text(ws.title) != "types":
+        return {}, [], {}
+
+    row_name_raw = ws.cell(row, 1).value
+    row_name = str(row_name_raw or "")
+    category = norm_text(ws.cell(row, 2).value)
+
+    if "(player)" not in row_name.lower() or category != "submarine":
+        return {}, [], {}
+
+    speed_col = None
+    for col in range(1, ws.max_column + 1):
+        header = norm_text(ws.cell(header_row, col).value)
+        if "speed" in header and "km/h" in header:
+            speed_col = col
+            break
+
+    if speed_col is None:
+        return {}, [], {}
+
+    original = ws.cell(row, speed_col).value
+    parsed = safe_float(original)
+
+    if parsed is None or parsed <= 0:
+        return {}, [], {}
+
+    target_speed = args.player_submarine_max_speed
+    if parsed >= target_speed:
+        return {}, [], {}
+
+    return (
+        {speed_col: target_speed},
+        [f"Speed (km/h): {original!r} -> {target_speed!r}"],
+        {"player_submarine_speed_rows": 1},
+    )
+
+
 def patch_sheet_generic(
     src_ws: Worksheet,
     source_label: str,
@@ -1182,6 +1226,19 @@ def patch_sheet_generic(
             new_values_by_col.update(simple_values)
             changes.extend(simple_changes)
             for key, value in simple_counters.items():
+                counters[key] = counters.get(key, 0) + value
+
+        speed_values, speed_changes, speed_counters = patch_player_submarine_speed_cells(
+            src_ws,
+            row_idx,
+            header_row,
+            args,
+        )
+
+        if speed_changes:
+            new_values_by_col.update(speed_values)
+            changes.extend(speed_changes)
+            for key, value in speed_counters.items():
                 counters[key] = counters.get(key, 0) + value
 
         if new_values_by_col:
@@ -1290,7 +1347,8 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"batterie x{args.battery_capacity_factor:g}, "
             f"consommation électrique x{args.energy_usage_factor:g}, "
             f"recharge batterie x{args.battery_capacity_factor:g}, "
-            f"{args.fast_speed_top_gears} crans rapides x{args.fast_speed_factor:g}. "
+            f"{args.fast_speed_top_gears} crans rapides x{args.fast_speed_factor:g}, "
+            f"vitesse max joueur {args.player_submarine_max_speed:g} km/h. "
             "cette version garde la ventilation vanilla par défaut."
         ),
         "author": MOD_AUTHOR,
@@ -1649,6 +1707,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}",
         f"- EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}",
         f"- Deux derniers crans avant : x{args.fast_speed_factor:g}",
+        f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
         f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement et crans rapides moteur",
         "",
@@ -1663,7 +1722,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.",
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
-        "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés.",
+        "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
         "- Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.",
     ]
 
@@ -1678,6 +1737,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 f"- Lignes batterie : {report.counters.get('battery_capacity_rows', 0)}",
                 f"- Lignes EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}",
                 f"- Lignes EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}",
+                f"- Lignes vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}",
             ]
         )
 
@@ -1828,6 +1888,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--player-submarine-max-speed",
+        type=float,
+        default=DEFAULT_PLAYER_SUBMARINE_MAX_SPEED,
+        help="Vitesse max km/h des types de sous-marins joueur. Défaut : 45.",
+    )
+
+    parser.add_argument(
         "--patch-ventilation",
         action="store_true",
         default=DEFAULT_PATCH_VENTILATION,
@@ -1871,6 +1938,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "battery_capacity_factor",
         "energy_usage_factor",
         "fast_speed_factor",
+        "player_submarine_max_speed",
         "ventilation_gain_factor",
         "potassium_duration_factor",
     )
@@ -2011,6 +2079,7 @@ def main(argv: list[str]) -> int:
     print(f"  - EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g}")
     print(f"  - EnergyUsage recharge/production batterie : x{args.battery_capacity_factor:g}")
     print(f"  - Deux derniers crans avant : x{args.fast_speed_factor:g}")
+    print(f"  - Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h")
     print(f"  - Ventilation vanilla : {'NON, patchée' if args.patch_ventilation else 'OUI, laissée normale'}")
 
     print("\nCompteurs importants :")
@@ -2020,6 +2089,7 @@ def main(argv: list[str]) -> int:
     print(f"  - Batterie : {report.counters.get('battery_capacity_rows', 0)}")
     print(f"  - EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}")
     print(f"  - EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}")
+    print(f"  - Vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}")
 
     print("\nFichiers générés :")
     print(f"  - {out_mod_dir / 'Manifest.json'}")
@@ -2040,7 +2110,7 @@ def main(argv: list[str]) -> int:
     print("  4. Place-le après les autres mods qui touchent General.xlsx, Entities.xlsx ou U-boat.xlsx.")
     print("  5. Charge ta sauvegarde existante ou lance une nouvelle carrière.")
     print("  6. Plonge à 100% air : le tooltip doit passer d'environ 13h à environ 8 jours.")
-    print("  7. Teste pleine vitesse / machines à fond : seuls les deux crans rapides doivent être boostés.")
+    print("  7. Teste pleine vitesse / machines à fond : on vise environ 40/45 km/h.")
     print("  8. Si la ventilation était cassée par une ancienne version, celle-ci doit la remettre vanilla car elle ne copie plus la ligne Ventilation.")
 
     return 0

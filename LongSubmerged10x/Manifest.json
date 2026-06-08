@@ -1,7 +1,7 @@
 {
   "name": "Long Submerged 10x+",
-  "version": "1.2.3",
-  "description": "Immersion longue : air de base x125, conso air x1/125, discipline x1/15, batterie x10, consommation électrique x0.1, recharge batterie x10, 2 crans rapides x2. cette version garde la ventilation vanilla par défaut.",
+  "version": "1.2.4",
+  "description": "Immersion longue : air de base x125, conso air x1/125, discipline x1/15, batterie x10, consommation électrique x0.1, recharge batterie x10, 2 crans rapides x3.5, vitesse max joueur 45 km/h. cette version garde la ventilation vanilla par défaut.",
   "author": "VotreNomOuVotreEquipe",
   "minGameVersion": "2026.1",
   "maxGameVersion": "",

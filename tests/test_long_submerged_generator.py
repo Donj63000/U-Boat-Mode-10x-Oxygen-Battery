@@ -56,6 +56,13 @@ def make_entities_workbook(path: Path) -> None:
     append_equipment("Atmosphere Tank", "Player U-boat Atmosphere Air", "AirCapacity = 100")
     append_equipment("Ventilation", "Ventilation", "EnergyUsage = 0.0001, OxygenGain = 0.00011, RegenerationLimit = 0.5")
 
+    ws_types = wb.create_sheet("Types")
+    ws_types.append([None, None, None, "Displacement (t)"])
+    ws_types.append(["/", "Category", "Speed (km/h)", "Standard", "Full"])
+    ws_types.append(["Type VIIC", "Submarine", 32.8, 769, 871])
+    ws_types.append(["Type VIIC (Player)", "Submarine", 32.8, 769, 871])
+    ws_types.append(["F-Class", "Destroyer", 65.7, 1428, 1970])
+
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
 
@@ -107,7 +114,7 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.2.3")
+            self.assertEqual(manifest["version"], "1.2.4")
             self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch")
             self.assertIn("Reflection", manifest["permissions"])
             self.assertIn("2026.1 Patch 20", manifest["supportedGameVersions"])
@@ -118,7 +125,7 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("IUserMod", runtime_patch_text)
             self.assertIn("ValidateOxygenBreathModifier", runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShip), "SavesManagerOnLoaded")', runtime_patch_text)
-            self.assertIn("private const float FastSpeedFactor = 2f;", runtime_patch_text)
+            self.assertIn("private const float FastSpeedFactor = 3.5f;", runtime_patch_text)
             self.assertIn("private const int FastForwardGearCount = 2;", runtime_patch_text)
             self.assertIn("EngineFastSpeedPatcher", runtime_patch_text)
             self.assertIn('HarmonyPatch(typeof(PlayerShipEngine), "Awake")', runtime_patch_text)
@@ -163,6 +170,12 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             report_text = (out_mod / "LongSubmerged10x_generation_report.txt").read_text(encoding="utf-8")
             self.assertIn("air_capacity_parameter_rows: 1", report_text)
             self.assertIn("energy_recharge_rows: 1", report_text)
+            self.assertIn("player_submarine_speed_rows: 1", report_text)
+
+            types_ws = load_workbook(out_mod / "Data Sheets" / "Entities.xlsx", data_only=False)["Types"]
+            player_type_row = find_row_by_id(types_ws, "Type VIIC (Player)")
+            self.assertEqual(types_ws.cell(player_type_row, 3).value, 45)
+            self.assertNotIn("Type VIIC", [types_ws.cell(row, 1).value for row in range(3, types_ws.max_row + 1) if row != player_type_row])
 
 
 if __name__ == "__main__":
