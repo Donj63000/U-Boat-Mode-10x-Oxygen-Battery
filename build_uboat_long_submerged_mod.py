@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-r"""
-UBOAT - LongSubmerged10x
-Générateur de mod Data Sheets pour augmenter fortement l'autonomie en immersion.
+"""
+UBOAT - Long Submerged 10x+
+Générateur de mod Data Sheets.
 
-Objectif gameplay :
-- Batterie environ 10x plus durable.
-- Consommation d'air / oxygène environ 10x plus lente.
-- Discipline / fatigue liées à l'immersion environ 10x moins punitives.
-- Ventilation / régénération d'air renforcée si les lignes correspondantes existent dans Entities.xlsx.
-
-Pourquoi un générateur ?
-- Les lignes changent selon les versions UBOAT.
-- Je lis donc les fichiers vanilla locaux et je génère des overrides minimaux.
+But de cette version :
+- Garder la batterie longue durée qui fonctionne déjà.
+- Corriger l'air / "qualité de l'air" pour viser environ 7 à 8 jours de base.
+- Ne plus casser la ventilation : la ligne Ventilation reste vanilla par défaut.
+- Patcher aussi la capacité / réserve de l'atmosphère quand elle est exposée dans les datasheets,
+  parce que baisser seulement "Oxygen Consumption Per Character" peut être plafonné par le jeu.
 
 Prérequis :
     py -m pip install openpyxl
 
-Exemple :
-    py build_uboat_long_submerged_mod.py ^
-      --uboat "C:\Program Files (x86)\Steam\steamapps\common\UBOAT" ^
-      --force
+Commande conseillée :
+    py build_uboat_long_submerged_mod.py --uboat "C:\\Program Files (x86)\\Steam\\steamapps\\common\\UBOAT" --force --clear-cache
 
-Le mod sera généré par défaut ici :
-    %USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\LongSubmerged10x
+Important :
+    Teste l'air sur une NOUVELLE carrière après génération.
 """
 
 from __future__ import annotations
@@ -37,9 +32,9 @@ import os
 import re
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell import Cell
@@ -47,67 +42,69 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 
 # =============================================================================
-# CONFIGURATION DU MOD
+# CONFIGURATION
 # =============================================================================
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
-MOD_DISPLAY_NAME = "Long Submerged 10x"
-MOD_VERSION = "1.0.0"
+MOD_DISPLAY_NAME = "Long Submerged 10x+"
+MOD_VERSION = "1.2.1"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MIN_GAME_VERSION = "2026.1"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch"
 
-# Je garde un facteur unique pour que le comportement reste lisible et ajustable.
-AUTONOMY_MULTIPLIER = 10.0
+DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
-# Batterie :
-# - Energy Base Scale x10 : réserve effective plus grande.
-# - Recharge Rate reste vanilla par défaut pour éviter une recharge instantanée.
-ENERGY_BASE_SCALE_MULTIPLIER = AUTONOMY_MULTIPLIER
-ENERGY_RECHARGE_RATE_MULTIPLIER = 1.0
+# Ton dernier screenshot donne environ 23 h 27 min d'air à 99 % avec /15 déjà appliqué.
+# 23.46 h * 125 / 15 = 195 h, donc environ 8 jours avec Blue Lighting.
+DEFAULT_AIR_CAPACITY_FACTOR = 125.0
 
-# Air :
-# - Consommation par personnage divisée par 10.
-# - Ventilation / filtre renforcés si trouvés dans Entities.xlsx.
-OXYGEN_CONSUMPTION_MULTIPLIER = 1.0 / AUTONOMY_MULTIPLIER
-VENTILATION_OXYGEN_GAIN_MULTIPLIER = AUTONOMY_MULTIPLIER
-VENTILATION_REGENERATION_LIMIT_MULTIPLIER = AUTONOMY_MULTIPLIER
-VENTILATION_ENERGY_USAGE_MULTIPLIER = 1.0 / AUTONOMY_MULTIPLIER
+# On garde aussi la baisse de consommation par personnage, mais ce n'est plus le levier principal :
+# certaines versions / configs semblent garder un minimum visible dans l'UI, par exemple "Équipage -4/min".
+DEFAULT_OXYGEN_CONSUMPTION_FACTOR = 125.0
 
-# Discipline / moral :
-# Je réduis les pertes passives liées à l'immersion et à la fatigue longue durée.
-UNDERWATER_DISCIPLINE_LOSS_MULTIPLIER = 1.0 / AUTONOMY_MULTIPLIER
-FATIGUE_PER_DAY_MULTIPLIER = 1.0 / AUTONOMY_MULTIPLIER
-FATIGUE_MAX_PENALTY_MULTIPLIER = 1.0 / AUTONOMY_MULTIPLIER
+# Discipline/fatigue proportionnelles à l'immersion longue.
+DEFAULT_DISCIPLINE_FACTOR = 15.0
 
-# Je ne réduis pas la perte de discipline quand le sous-marin est détecté.
-DETECTED_DISCIPLINE_LOSS_MULTIPLIER: float | None = None
+# Batterie : ces réglages marchent chez toi, donc on les garde.
+DEFAULT_BATTERY_CAPACITY_FACTOR = 10.0
+DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR = 0.10
 
-# Je ne touche pas aux paramètres batterie d'Entities.xlsx par défaut pour éviter
-# un cumul Energy Base Scale x10 puis équipement x10.
-PATCH_BATTERY_EQUIPMENT_PARAMETERS = False
-BATTERY_EQUIPMENT_MULTIPLIER = AUTONOMY_MULTIPLIER
+# IMPORTANT :
+# On ne modifie plus la ventilation par défaut.
+# Une ancienne tentative modifiait la ligne ventilation deux fois sur EnergyUsage et montait RegenerationLimit trop haut.
+# Pour "la ventilation marche normalement", on ne copie plus cette ligne dans l'override.
+DEFAULT_PATCH_VENTILATION = False
+
+# Optionnel, désactivé par défaut.
+# Si activé, seulement OxygenGain est augmenté et EnergyUsage est réduit UNE seule fois.
+# RegenerationLimit reste vanilla pour éviter les comportements bizarres.
+DEFAULT_VENTILATION_GAIN_FACTOR = 1.0
+DEFAULT_PATCH_POTASSIUM = False
+DEFAULT_POTASSIUM_DURATION_FACTOR = 1.0
+
+# Patch optionnel de Energy Base Scale dans General.xlsx. Désactivé car la batterie marche via Entities.xlsx.
+DEFAULT_PATCH_ENERGY_BASE_SCALE = False
 
 
 # =============================================================================
-# TYPES ET OUTILS
+# STRUCTURES
 # =============================================================================
-
 
 @dataclass(frozen=True)
 class GeneralPatch:
-    category: str
     row_id: str
     multiplier: float
+    expected_category: str | None
     reason: str
 
 
 @dataclass
 class PatchReport:
-    changed_files: list[str]
-    warnings: list[str]
-    info: list[str]
+    changed_files: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    info: list[str] = field(default_factory=list)
+    counters: dict[str, int] = field(default_factory=dict)
 
-    def add_file(self, path: Path) -> None:
+    def file(self, path: Path) -> None:
         self.changed_files.append(str(path))
 
     def warn(self, message: str) -> None:
@@ -116,16 +113,39 @@ class PatchReport:
     def note(self, message: str) -> None:
         self.info.append(message)
 
+    def inc(self, key: str, amount: int = 1) -> None:
+        self.counters[key] = self.counters.get(key, 0) + amount
+
+
+@dataclass
+class GeneralRowHit:
+    patch: GeneralPatch
+    source_row: int
+    category_norm: str | None
+    category_row: int | None
+    value_cols: list[int]
+
+
+@dataclass
+class ModifiedRow:
+    source_row: int
+    new_values_by_col: dict[int, Any]
+    changes: list[str]
+    readable_context: str
+
+
+# =============================================================================
+# OUTILS GÉNÉRAUX
+# =============================================================================
 
 def norm_text(value: Any) -> str:
-    """Je normalise une valeur Excel pour les comparaisons robustes."""
     if value is None:
         return ""
-    return str(value).strip().lower()
+    text = str(value).replace("\u00a0", " ").strip().lower()
+    return re.sub(r"\s+", " ", text)
 
 
 def norm_category(value: Any) -> str:
-    """Je normalise une catégorie de type '/Resources'."""
     text = norm_text(value)
     if not text:
         return ""
@@ -134,24 +154,18 @@ def norm_category(value: Any) -> str:
     return text
 
 
+def contains_any(text: str, needles: Iterable[str]) -> bool:
+    lowered = text.lower()
+    return any(needle.lower() in lowered for needle in needles)
+
+
 def safe_float(value: Any) -> float | None:
-    """
-    Je convertis un contenu Excel en float quand c'est possible :
-    - nombres natifs Excel
-    - chaînes avec virgule décimale
-    - notation scientifique
-    - pourcentages simples
-    """
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
 
-    if isinstance(value, bool):
-        return None
-
-    if isinstance(value, int | float):
-        if math.isfinite(float(value)):
-            return float(value)
-        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+        return number if math.isfinite(number) else None
 
     text = str(value).strip()
     if not text:
@@ -160,6 +174,7 @@ def safe_float(value: Any) -> float | None:
     if text.endswith("%"):
         text = text[:-1].strip()
 
+    text = text.replace("\u00a0", "")
     text = text.replace(" ", "")
     text = text.replace(",", ".")
 
@@ -168,51 +183,39 @@ def safe_float(value: Any) -> float | None:
     except ValueError:
         return None
 
-    if not math.isfinite(number):
-        return None
-    return number
+    return number if math.isfinite(number) else None
 
 
-def scale_excel_value(original_value: Any, multiplier: float) -> Any:
-    """Je multiplie une valeur Excel numérique en écrivant un vrai nombre Excel."""
+def scale_numeric_excel_value(original_value: Any, multiplier: float) -> float:
     parsed = safe_float(original_value)
     if parsed is None:
-        raise ValueError(f"Valeur non numérique impossible à multiplier : {original_value!r}")
-
+        raise ValueError(f"valeur non numérique : {original_value!r}")
     return parsed * multiplier
 
 
 def copy_cell(src: Cell, dst: Cell) -> None:
-    """Je copie la valeur et le style minimal d'une cellule."""
     dst.value = src.value
 
     if src.has_style:
         dst._style = copy.copy(src._style)
 
-    if src.number_format:
-        dst.number_format = src.number_format
+    dst.number_format = src.number_format
 
     if src.font:
         dst.font = copy.copy(src.font)
-
     if src.fill:
         dst.fill = copy.copy(src.fill)
-
     if src.border:
         dst.border = copy.copy(src.border)
-
     if src.alignment:
         dst.alignment = copy.copy(src.alignment)
-
     if src.protection:
         dst.protection = copy.copy(src.protection)
-
     if src.comment:
         dst.comment = copy.copy(src.comment)
 
 
 def copy_row(src_ws: Worksheet, dst_ws: Worksheet, src_row: int, dst_row: int) -> None:
-    """Je copie une ligne entière d'une worksheet vers une autre."""
     for col in range(1, src_ws.max_column + 1):
         copy_cell(src_ws.cell(src_row, col), dst_ws.cell(dst_row, col))
 
@@ -221,516 +224,1212 @@ def copy_row(src_ws: Worksheet, dst_ws: Worksheet, src_row: int, dst_row: int) -
 
 
 def copy_column_widths(src_ws: Worksheet, dst_ws: Worksheet) -> None:
-    """Je copie les largeurs de colonnes pour garder les fichiers lisibles."""
     for key, dim in src_ws.column_dimensions.items():
         dst_ws.column_dimensions[key].width = dim.width
 
 
-def get_sheet_case_insensitive(workbook: Workbook, wanted_name: str) -> Worksheet:
+def get_sheet_case_insensitive(workbook: Workbook, wanted_name: str) -> Worksheet | None:
+    wanted = norm_text(wanted_name)
     for name in workbook.sheetnames:
-        if name.strip().lower() == wanted_name.strip().lower():
+        if norm_text(name) == wanted:
             return workbook[name]
-    raise KeyError(f"Onglet introuvable : {wanted_name!r}. Onglets disponibles : {workbook.sheetnames}")
+    return None
 
 
-def path_contains(parent: Path, child: Path) -> bool:
-    parent_resolved = parent.resolve()
-    child_resolved = child.resolve()
-    return parent_resolved == child_resolved or parent_resolved in child_resolved.parents
+def default_local_uboat_dir() -> Path:
+    user_profile = os.environ.get("USERPROFILE")
+    if user_profile:
+        return Path(user_profile) / "AppData" / "LocalLow" / "Deep Water Studio" / "UBOAT"
+    return Path.cwd() / "UBOAT_LocalLow"
+
+
+def default_local_mods_root() -> Path:
+    return default_local_uboat_dir() / "Mods"
+
+
+def resolve_data_sheets_dir(uboat_root: Path) -> Path:
+    data_sheets = uboat_root / "UBOAT_Data" / "Data Sheets"
+    if not data_sheets.exists():
+        raise FileNotFoundError(
+            f"Dossier introuvable : {data_sheets}\n"
+            f"--uboat doit pointer vers le dossier d'installation UBOAT."
+        )
+    return data_sheets
 
 
 def ensure_clean_directory(path: Path, force: bool) -> None:
-    """
-    Je crée un dossier vide.
-    Si force=True, je supprime l'ancien dossier sauf s'il contient ce script.
-    """
     if path.exists():
         if not force:
             raise FileExistsError(
                 f"Le dossier existe déjà : {path}\n"
-                f"Relance avec --force pour l'écraser."
+                f"Relance avec --force pour le remplacer."
             )
-
-        script_path = Path(__file__).resolve()
-        if path_contains(path, script_path):
-            raise ValueError(
-                f"Refus de supprimer {path} car ce dossier contient le générateur.\n"
-                "Choisis un sous-dossier de sortie ou le dossier Mods local UBOAT."
-            )
-
         shutil.rmtree(path)
-
     path.mkdir(parents=True, exist_ok=True)
 
 
-def default_local_mods_root() -> Path:
-    user_profile = os.environ.get("USERPROFILE")
-    if not user_profile:
-        return Path.cwd() / "UBOAT_Mods"
-    return Path(user_profile) / "AppData" / "LocalLow" / "Deep Water Studio" / "UBOAT" / "Mods"
+def find_datasheet_files(data_sheets_dir: Path, filename: str | None = None) -> list[Path]:
+    files: list[Path] = []
+    for path in data_sheets_dir.rglob("*.xlsx"):
+        if path.name.startswith("~$"):
+            continue
+        if filename is not None and path.name.lower() != filename.lower():
+            continue
+        files.append(path)
+    return sorted(files, key=lambda p: str(p.relative_to(data_sheets_dir)).lower())
 
 
-def resolve_data_sheets_dir(uboat_root: Path) -> Path:
-    candidate = uboat_root / "UBOAT_Data" / "Data Sheets"
-    if not candidate.exists():
-        raise FileNotFoundError(
-            f"Dossier Data Sheets introuvable : {candidate}\n"
-            f"Vérifie le chemin --uboat. Il doit pointer vers le dossier d'installation UBOAT."
-        )
-    return candidate
+def unique_preserve_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for value in values:
+        key = value.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(value.strip())
+
+    return result
+
+
+def row_values(ws: Worksheet, row: int) -> list[Any]:
+    return [ws.cell(row, col).value for col in range(1, ws.max_column + 1)]
+
+
+def join_row_text(values: list[Any]) -> str:
+    return " | ".join(str(value) for value in values if value is not None)
+
+
+def readable_row_label(ws: Worksheet, row: int) -> str:
+    values = row_values(ws, row)
+    parts: list[str] = []
+    for index in range(min(len(values), 6)):
+        value = values[index]
+        if value is not None and str(value).strip():
+            parts.append(str(value).strip())
+    return " | ".join(parts) if parts else f"row={row}"
+
+
+def find_header_row(ws: Worksheet) -> int:
+    """
+    Cherche la première ligne d'en-tête probable.
+    Dans les datasheets UBOAT, elle est très souvent en ligne 1.
+    """
+    best_row = 1
+    best_score = -1
+
+    for row in range(1, min(ws.max_row, 25) + 1):
+        values = [norm_text(ws.cell(row, col).value) for col in range(1, ws.max_column + 1)]
+        score = 0
+        for value in values:
+            if value in {"id", "name", "parameters", "type", "value", "category"}:
+                score += 3
+            elif value:
+                score += 1
+
+        if score > best_score:
+            best_score = score
+            best_row = row
+
+    return best_row
+
+
+def find_columns_by_header(ws: Worksheet, header_row: int) -> dict[str, list[int]]:
+    headers: dict[str, list[int]] = {}
+    for col in range(1, ws.max_column + 1):
+        header = norm_text(ws.cell(header_row, col).value)
+        if not header:
+            continue
+        headers.setdefault(header, []).append(col)
+    return headers
 
 
 # =============================================================================
-# PATCH GENERAL.XLSX
+# GENERAL.XLSX
 # =============================================================================
 
-
-def build_general_patches() -> list[GeneralPatch]:
-    patches: list[GeneralPatch] = [
+def build_general_patches(args: argparse.Namespace) -> list[GeneralPatch]:
+    patches = [
         GeneralPatch(
-            category="/Resources",
             row_id="Oxygen Consumption Per Character",
-            multiplier=OXYGEN_CONSUMPTION_MULTIPLIER,
-            reason="Réduit la consommation d'air par membre d'équipage pour tenir environ 10x plus longtemps.",
+            multiplier=1.0 / args.oxygen_consumption_factor,
+            expected_category="/Resources",
+            reason=(
+                f"Consommation air/qualité d'air divisée par {args.oxygen_consumption_factor:g}. "
+                "Ce n'est plus le seul levier, car l'UI peut garder un minimum affiché."
+            ),
         ),
         GeneralPatch(
-            category="/Resources",
-            row_id="Energy Base Scale",
-            multiplier=ENERGY_BASE_SCALE_MULTIPLIER,
-            reason="Augmente la réserve d'énergie batterie.",
-        ),
-        GeneralPatch(
-            category="/Discipline",
             row_id="Underwater Discipline Loss",
-            multiplier=UNDERWATER_DISCIPLINE_LOSS_MULTIPLIER,
-            reason="Réduit la perte de discipline pendant l'immersion.",
+            multiplier=1.0 / args.discipline_factor,
+            expected_category="/Discipline",
+            reason=f"Discipline sous l'eau environ {args.discipline_factor:g}x moins punitive.",
         ),
         GeneralPatch(
-            category="/Discipline",
             row_id="Fatigue - Per Day",
-            multiplier=FATIGUE_PER_DAY_MULTIPLIER,
-            reason="Réduit l'accumulation de fatigue longue durée.",
+            multiplier=1.0 / args.discipline_factor,
+            expected_category="/Discipline",
+            reason=f"Fatigue longue durée environ {args.discipline_factor:g}x plus lente.",
         ),
         GeneralPatch(
-            category="/Discipline",
             row_id="Fatigue - Max Penalty",
-            multiplier=FATIGUE_MAX_PENALTY_MULTIPLIER,
-            reason="Réduit la pénalité maximale de fatigue sur la discipline.",
+            multiplier=1.0 / args.discipline_factor,
+            expected_category="/Discipline",
+            reason="Pénalité maximale de fatigue réduite proportionnellement.",
         ),
     ]
 
-    if ENERGY_RECHARGE_RATE_MULTIPLIER != 1.0:
+    if args.patch_energy_base_scale:
         patches.append(
             GeneralPatch(
-                category="/Resources",
-                row_id="Energy Recharge Rate",
-                multiplier=ENERGY_RECHARGE_RATE_MULTIPLIER,
-                reason="Ajuste la recharge batterie.",
-            )
-        )
-
-    if DETECTED_DISCIPLINE_LOSS_MULTIPLIER is not None:
-        patches.append(
-            GeneralPatch(
-                category="/Discipline",
-                row_id="Detected Discipline Loss",
-                multiplier=DETECTED_DISCIPLINE_LOSS_MULTIPLIER,
-                reason="Réduit la perte de discipline quand le sous-marin est détecté.",
+                row_id="Energy Base Scale",
+                multiplier=args.battery_capacity_factor,
+                expected_category="/Resources",
+                reason="Optionnel : réserve d'énergie globale augmentée.",
             )
         )
 
     return patches
 
 
-def index_general_settings(settings_ws: Worksheet) -> tuple[dict[str, int], dict[tuple[str, str], int]]:
-    """
-    Je retourne :
-    - category_rows : catégorie normalisée -> numéro de ligne
-    - data_rows : (catégorie normalisée, row_id normalisé) -> numéro de ligne
-    """
+def index_settings_sheet(ws: Worksheet) -> tuple[
+    dict[str, int],
+    dict[tuple[str, str], int],
+    dict[str, tuple[int, str | None]],
+]:
     category_rows: dict[str, int] = {}
-    data_rows: dict[tuple[str, str], int] = {}
+    rows_by_category_and_id: dict[tuple[str, str], int] = {}
+    rows_by_id: dict[str, tuple[int, str | None]] = {}
 
-    current_category = ""
+    current_category: str | None = None
 
-    for row in range(1, settings_ws.max_row + 1):
-        first_value = settings_ws.cell(row, 1).value
-        first_text = str(first_value).strip() if first_value is not None else ""
+    for row in range(1, ws.max_row + 1):
+        first_raw = ws.cell(row, 1).value
+        first = str(first_raw).strip() if first_raw is not None else ""
 
-        if not first_text:
+        if not first:
             continue
 
-        if first_text.startswith("/"):
-            current_category = norm_category(first_text)
+        if first.startswith("/"):
+            current_category = norm_category(first)
             category_rows[current_category] = row
             continue
 
+        row_id_norm = norm_text(first)
+        if not row_id_norm:
+            continue
+
         if current_category:
-            data_rows[(current_category, norm_text(first_text))] = row
+            rows_by_category_and_id[(current_category, row_id_norm)] = row
 
-    return category_rows, data_rows
+        rows_by_id.setdefault(row_id_norm, (row, current_category))
 
-
-def find_value_columns_for_category(settings_ws: Worksheet, category_row: int) -> list[int]:
-    """
-    Je détecte toutes les colonnes de valeur d'une catégorie.
-    /Resources expose souvent 'Value' seulement, tandis que /Discipline expose
-    'Normal', 'Hard' et 'Very Hard'. Je patche donc toutes les colonnes non vides.
-    """
-    value_columns: list[int] = []
-
-    for col in range(2, settings_ws.max_column + 1):
-        header_value = settings_ws.cell(category_row, col).value
-        if header_value is None or str(header_value).strip() == "":
-            continue
-        value_columns.append(col)
-
-    return value_columns or [2]
+    return category_rows, rows_by_category_and_id, rows_by_id
 
 
-def scale_general_row_values(
-    src_ws: Worksheet,
-    out_ws: Worksheet,
-    src_row: int,
-    dest_row: int,
-    category_row: int,
-    value_columns: list[int],
-    patch: GeneralPatch,
+def find_value_cols_for_general_row(ws: Worksheet, row: int) -> list[int]:
+    value_cols: list[int] = []
+
+    for col in range(2, ws.max_column + 1):
+        if safe_float(ws.cell(row, col).value) is not None:
+            value_cols.append(col)
+
+    return value_cols
+
+
+def find_general_hits(
+    ws: Worksheet,
+    patches: list[GeneralPatch],
     report: PatchReport,
-) -> int:
-    changes_count = 0
-    changes: list[str] = []
+    source_label: str,
+) -> list[GeneralRowHit]:
+    category_rows, rows_by_category_and_id, rows_by_id = index_settings_sheet(ws)
+    hits: list[GeneralRowHit] = []
 
-    for value_col in value_columns:
-        original_value = src_ws.cell(src_row, value_col).value
-        if original_value is None:
+    for patch in patches:
+        expected_category_norm = norm_category(patch.expected_category) if patch.expected_category else None
+        row: int | None = None
+        actual_category: str | None = None
+
+        if expected_category_norm:
+            row = rows_by_category_and_id.get((expected_category_norm, norm_text(patch.row_id)))
+            if row is not None:
+                actual_category = expected_category_norm
+
+        if row is None:
+            fallback = rows_by_id.get(norm_text(patch.row_id))
+            if fallback:
+                row, actual_category = fallback
+
+        if row is None:
+            report.warn(f"{source_label}: ligne introuvable dans Settings : {patch.row_id!r}")
             continue
 
-        try:
-            new_value = scale_excel_value(original_value, patch.multiplier)
-        except ValueError as exc:
-            report.warn(f"General.xlsx : {patch.row_id} colonne {value_col} non patchée : {exc}")
+        value_cols = find_value_cols_for_general_row(ws, row)
+
+        if not value_cols:
+            report.warn(
+                f"{source_label}: {patch.row_id!r} trouvé ligne {row}, "
+                f"mais aucune colonne numérique n'a été trouvée."
+            )
             continue
 
-        out_ws.cell(dest_row, value_col).value = new_value
-        header = src_ws.cell(category_row, value_col).value
-        header_text = str(header).strip() if header is not None else f"Colonne {value_col}"
-        changes.append(f"{header_text}: {original_value!r} -> {new_value!r}")
-        changes_count += 1
-
-    if changes:
-        report.note(
-            f"General.xlsx / Settings {patch.category} / {patch.row_id}: "
-            + "; ".join(changes)
-            + f" | {patch.reason}"
+        hits.append(
+            GeneralRowHit(
+                patch=patch,
+                source_row=row,
+                category_norm=actual_category,
+                category_row=category_rows.get(actual_category or "") if actual_category else None,
+                value_cols=value_cols,
+            )
         )
 
-    return changes_count
+    return hits
 
 
-def create_general_override(vanilla_general: Path, out_general: Path, report: PatchReport) -> None:
+def apply_general_hit_values(
+    src_ws: Worksheet,
+    out_ws: Worksheet,
+    hit: GeneralRowHit,
+    dest_row: int,
+    report: PatchReport,
+    source_label: str,
+) -> None:
+    changes: list[str] = []
+
+    for value_col in hit.value_cols:
+        original = src_ws.cell(hit.source_row, value_col).value
+        new_value = scale_numeric_excel_value(original, hit.patch.multiplier)
+        out_ws.cell(dest_row, value_col).value = new_value
+
+        header = src_ws.cell(hit.category_row or 1, value_col).value
+        header_text = str(header).strip() if header is not None else f"colonne {value_col}"
+        changes.append(f"{header_text}: {original!r} -> {new_value!r}")
+
+    report.note(
+        f"{source_label} / Settings / {hit.patch.row_id}: "
+        + "; ".join(changes)
+        + f" | {hit.patch.reason}"
+    )
+
+    if norm_text(hit.patch.row_id) == "oxygen consumption per character":
+        report.inc("general_oxygen_consumption_rows")
+
+
+def create_general_override(
+    vanilla_general: Path,
+    output_general: Path,
+    patches: list[GeneralPatch],
+    report: PatchReport,
+    data_sheets_dir: Path,
+) -> bool:
+    source_label = str(vanilla_general.relative_to(data_sheets_dir))
     src_wb = load_workbook(vanilla_general, data_only=False)
     src_ws = get_sheet_case_insensitive(src_wb, "Settings")
 
-    category_rows, data_rows = index_general_settings(src_ws)
-    patches = build_general_patches()
+    if src_ws is None:
+        report.warn(f"{source_label}: onglet Settings introuvable, fichier ignoré.")
+        return False
+
+    hits = find_general_hits(src_ws, patches, report, source_label)
+    if not hits:
+        report.warn(f"{source_label}: aucune valeur General.xlsx patchée.")
+        return False
 
     out_wb = Workbook()
     out_ws = out_wb.active
-    out_ws.title = "Settings"
+    out_ws.title = src_ws.title
     copy_column_widths(src_ws, out_ws)
 
-    patches_by_category: dict[str, list[GeneralPatch]] = {}
-    for patch in patches:
-        patches_by_category.setdefault(norm_category(patch.category), []).append(patch)
-
     dest_row = 1
-    changes_count = 0
+    written_categories: set[str] = set()
 
-    for category_norm, category_row in sorted(category_rows.items(), key=lambda item: item[1]):
-        category_patches = patches_by_category.get(category_norm, [])
-        if not category_patches:
-            continue
+    categorized_hits = [hit for hit in hits if hit.category_norm and hit.category_row]
+    uncategorized_hits = [hit for hit in hits if not (hit.category_norm and hit.category_row)]
 
-        copy_row(src_ws, out_ws, category_row, dest_row)
+    for hit in sorted(categorized_hits, key=lambda h: (h.category_row or 0, h.source_row)):
+        assert hit.category_norm is not None
+        assert hit.category_row is not None
+
+        if hit.category_norm not in written_categories:
+            copy_row(src_ws, out_ws, hit.category_row, dest_row)
+            dest_row += 1
+            written_categories.add(hit.category_norm)
+
+        copy_row(src_ws, out_ws, hit.source_row, dest_row)
+        apply_general_hit_values(src_ws, out_ws, hit, dest_row, report, source_label)
         dest_row += 1
 
-        value_columns = find_value_columns_for_category(src_ws, category_row)
-
-        for patch in category_patches:
-            src_data_row = data_rows.get((category_norm, norm_text(patch.row_id)))
-            if src_data_row is None:
-                report.warn(
-                    f"General.xlsx : ligne introuvable : {patch.category} / {patch.row_id}. "
-                    f"Le jeu a peut-être renommé cette entrée."
-                )
-                continue
-
-            copy_row(src_ws, out_ws, src_data_row, dest_row)
-            changes_count += scale_general_row_values(
-                src_ws=src_ws,
-                out_ws=out_ws,
-                src_row=src_data_row,
-                dest_row=dest_row,
-                category_row=category_row,
-                value_columns=value_columns,
-                patch=patch,
-                report=report,
-            )
+    if uncategorized_hits:
+        if dest_row > 1:
             dest_row += 1
 
-        dest_row += 1
+        first_row_text = " ".join(
+            norm_text(src_ws.cell(1, col).value)
+            for col in range(1, src_ws.max_column + 1)
+        )
 
-    if changes_count == 0:
-        raise RuntimeError("Aucun patch General.xlsx n'a été appliqué. Vérifie la version du jeu.")
+        if "value" in first_row_text or "id" in first_row_text:
+            copy_row(src_ws, out_ws, 1, dest_row)
+            dest_row += 1
 
-    out_general.parent.mkdir(parents=True, exist_ok=True)
-    out_wb.save(out_general)
-    report.add_file(out_general)
+        for hit in sorted(uncategorized_hits, key=lambda h: h.source_row):
+            copy_row(src_ws, out_ws, hit.source_row, dest_row)
+            apply_general_hit_values(src_ws, out_ws, hit, dest_row, report, source_label)
+            dest_row += 1
+
+    output_general.parent.mkdir(parents=True, exist_ok=True)
+    out_wb.save(output_general)
+    report.file(output_general)
+    return True
 
 
 # =============================================================================
-# PATCH ENTITIES.XLSX
+# PATCH PARAMÈTRES TEXTUELS, EX: "EnergyUsage = 0.0002"
 # =============================================================================
 
-
-PARAM_ASSIGNMENT_PATTERN_TEMPLATE = (
-    r"(?P<prefix>\b{key}\b\s*=\s*)"
-    r"(?P<number>[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?)"
-    r"(?P<percent>%?)"
+NUMBER_PATTERN = r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?"
+KEY_VALUE_PATTERN = re.compile(
+    r"(?P<prefix>(?P<key>[A-Za-z][A-Za-z0-9_ ]*?)\s*(?P<op>[*+\-/]?=)\s*)"
+    r"(?P<number>" + NUMBER_PATTERN + r")(?P<percent>%?)"
 )
 
 
-def format_parameter_number(value: float, percent: str = "") -> str:
-    """Je garde un format compact et compatible avec les paramètres Entities."""
-    text = f"{value:.10g}"
-    return text + percent
+def format_number(value: float, percent: str = "") -> str:
+    return f"{value:.10g}" + percent
 
 
-def scale_parameter_string(parameters: str, multipliers: dict[str, float]) -> tuple[str, list[str]]:
+def normalize_parameter_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", key.lower())
+
+
+def replace_keyed_parameters(
+    parameters: str,
+    multiplier_by_key: dict[str, float],
+    *,
+    only_when: Callable[[str, re.Match[str]], bool] | None = None,
+) -> tuple[str, list[str]]:
     """
-    Je modifie une chaîne de paramètres du style :
-        EnergyUsage = 0.0002, Noise = 0.4, OxygenGain = 0.003
+    Remplace les valeurs dans une chaîne Parameters.
+
+    multiplier_by_key utilise des clés normalisées :
+      "EnergyUsage" -> "energyusage"
+      "Air Quality Capacity" -> "airqualitycapacity"
     """
-    changed: list[str] = []
-    result = parameters
+    normalized_multipliers = {
+        normalize_parameter_key(key): value
+        for key, value in multiplier_by_key.items()
+    }
 
-    for key, multiplier in multipliers.items():
-        pattern = re.compile(
-            PARAM_ASSIGNMENT_PATTERN_TEMPLATE.format(key=re.escape(key)),
-            flags=re.IGNORECASE,
-        )
+    changes: list[str] = []
 
-        def replace(match: re.Match[str]) -> str:
-            original_text = match.group("number")
-            percent = match.group("percent") or ""
-            original = safe_float(original_text + percent)
+    def replace(match: re.Match[str]) -> str:
+        raw_key = match.group("key")
+        normalized_key = normalize_parameter_key(raw_key)
+        multiplier = normalized_multipliers.get(normalized_key)
 
-            if original is None:
-                return match.group(0)
+        if multiplier is None:
+            return match.group(0)
 
-            new_value = original * multiplier
-            changed.append(f"{key}: {original_text}{percent} -> {format_parameter_number(new_value, percent)}")
-            return match.group("prefix") + format_parameter_number(new_value, percent)
+        if only_when is not None and not only_when(raw_key, match):
+            return match.group(0)
 
-        result = pattern.sub(replace, result)
+        raw_number = match.group("number")
+        percent = match.group("percent") or ""
+        parsed = safe_float(raw_number + percent)
 
-    return result, changed
+        if parsed is None:
+            return match.group(0)
+
+        scaled = parsed * multiplier
+        replacement_number = format_number(scaled, percent)
+        changes.append(f"{raw_key.strip()}: {raw_number}{percent} -> {replacement_number}")
+
+        return match.group("prefix") + replacement_number
+
+    new_parameters = KEY_VALUE_PATTERN.sub(replace, parameters)
+    return new_parameters, changes
 
 
-def find_header_row_and_parameters_col(ws: Worksheet) -> tuple[int | None, int | None]:
-    """Je trouve la ligne d'en-tête et la colonne Parameters dans une feuille Entities."""
-    for row in range(1, min(ws.max_row, 20) + 1):
-        for col in range(1, ws.max_column + 1):
-            if norm_text(ws.cell(row, col).value) == "parameters":
-                return row, col
+def find_parameters_col(ws: Worksheet, header_row: int) -> int | None:
+    for col in range(1, ws.max_column + 1):
+        if norm_text(ws.cell(header_row, col).value) == "parameters":
+            return col
 
+    # Fallback historique : colonne P.
     if ws.max_column >= 16:
-        return 1, 16
+        return 16
 
-    return None, None
-
-
-def row_text(row_values: Iterable[Any]) -> str:
-    return " | ".join(str(v) for v in row_values if v is not None)
+    return None
 
 
-def should_patch_ventilation_row(row_values: list[Any], parameters: str) -> bool:
-    """
-    Je patche les lignes qui portent explicitement des paramètres d'air, ce qui
-    couvre la ventilation et les absorbeurs sans dépendre d'un numéro de ligne.
-    """
-    params_norm = parameters.lower()
-    if "oxygengain" in params_norm or "regenerationlimit" in params_norm:
+# =============================================================================
+# DÉTECTION DES LIGNES À PATCHER
+# =============================================================================
+
+VENTILATION_WORDS = (
+    "ventilation",
+    "ventilator",
+    "air recircul",
+    "recirculating",
+    "potassium",
+    "absorber",
+    "absorbent",
+    "kali",
+)
+
+COMPRESSOR_WORDS = (
+    "compressor",
+    "compresseur",
+    "compressed air",
+    "compressedair",
+    "druckluft",
+)
+
+ACCUMULATOR_WORDS = (
+    "accumulator",
+    "accumulators",
+    "akkumulator",
+    "akkumulatoren",
+    "battery upgrade",
+    "battery capacity",
+)
+
+PLAYER_SUBMARINE_WORDS = (
+    "u-boat",
+    "uboat",
+    "u boat",
+    "type ii",
+    "type vii",
+    "type viic",
+    "type viib",
+    "type ix",
+    "submarine",
+    "player ship",
+    "player uboat",
+)
+
+AIR_CONTEXT_WORDS = (
+    "air quality",
+    "airquality",
+    "air supply",
+    "airsupply",
+    "breathable",
+    "atmosphere",
+    "atmospheric",
+    "oxygen capacity",
+    "oxygen supply",
+    "oxygen amount",
+    "oxygen reserve",
+    "starting air",
+    "start air",
+    "initial air",
+)
+
+AIR_BANNED_WORDS = (
+    "compressed air",
+    "compressedair",
+    "compressor",
+    "compresseur",
+    "torpedo",
+    "torpille",
+    "diesel",
+    "fuel",
+    "emission",
+    "exhaust",
+    "noise",
+    "visibility",
+    "detection",
+    "contrail",
+)
+
+CONSUMPTION_BANNED_WORDS = (
+    "consumption",
+    "consume",
+    "usage",
+    "use",
+    "gain",
+    "regeneration",
+    "recharge",
+    "efficiency",
+    "noise",
+    "rate",
+    "persecond",
+    "perminute",
+    "percharacter",
+    "per character",
+)
+
+
+# Clés exactes qui ressemblent à la CAPACITÉ de l'atmosphère, pas à sa consommation.
+AIR_CAPACITY_KEYS = {
+    "aircapacity",
+    "airqualitycapacity",
+    "airqualitymax",
+    "airqualitymaximum",
+    "maxairquality",
+    "maxair",
+    "airmax",
+    "airamount",
+    "airqualityamount",
+    "airbaseamount",
+    "baseairamount",
+    "startingair",
+    "startair",
+    "initialair",
+    "atmospherecapacity",
+    "atmosphericcapacity",
+    "atmospheremax",
+    "atmosphereamount",
+    "atmosphere",
+    "oxygenmax",
+    "maxoxygen",
+    "oxygencapacity",
+    "oxygenamount",
+    "oxygenreserve",
+    "oxygensupply",
+    "oxygenstorage",
+    "baseoxygen",
+    "oxygenbase",
+    "startingoxygen",
+    "initialoxygen",
+    "breathableair",
+    "breathableaircapacity",
+    "co2capacity",
+    "carbondioxidecapacity",
+}
+
+
+ENERGY_USAGE_KEYS = {
+    "energyusage",
+    "electricityusage",
+    "powerusage",
+}
+
+
+ACCUMULATOR_CAPACITY_KEYS = {
+    "energycapacity",
+    "batterycapacity",
+    "capacitymultiplier",
+    "capacityscale",
+    "capacity",
+    "maxcapacity",
+    "energycapacitygain",
+    "batterycapacitygain",
+    "energystorage",
+    "storage",
+    "value",
+}
+
+
+def is_ventilation_row(text: str) -> bool:
+    lowered = text.lower()
+    return contains_any(lowered, VENTILATION_WORDS) or "oxygengain" in lowered or "regenerationlimit" in lowered
+
+
+def is_compressor_row(text: str) -> bool:
+    return contains_any(text.lower(), COMPRESSOR_WORDS)
+
+
+def is_accumulator_row(text: str) -> bool:
+    lowered = text.lower()
+    return contains_any(lowered, ACCUMULATOR_WORDS) and not is_compressor_row(lowered)
+
+
+def is_player_submarine_context(text: str) -> bool:
+    return contains_any(text.lower(), PLAYER_SUBMARINE_WORDS)
+
+
+def has_air_context(text: str) -> bool:
+    lowered = text.lower()
+
+    if contains_any(lowered, AIR_BANNED_WORDS):
+        return False
+
+    if contains_any(lowered, AIR_CONTEXT_WORDS):
         return True
 
-    text = row_text(row_values[:6]).lower()
-    if "ventilation" in text:
+    # Fallback : ligne de sous-marin + paramètre exact "Oxygen" ou "Air".
+    if is_player_submarine_context(lowered) and ("oxygen" in lowered or "air" in lowered):
         return True
 
     return False
 
 
-def should_patch_battery_row(row_values: list[Any], parameters: str) -> bool:
-    if not PATCH_BATTERY_EQUIPMENT_PARAMETERS:
+def is_air_capacity_key(key: str, row_text_full: str, value: float) -> bool:
+    normalized = normalize_parameter_key(key)
+
+    if value <= 0:
         return False
 
-    text = (row_text(row_values[:8]) + " | " + parameters).lower()
-    battery_words = ("accumulator", "accumulators", "battery", "batteries")
-    parameter_words = ("capacity", "energycapacity", "batterycapacity", "capacityscale", "capacitymultiplier")
+    if normalized in AIR_CAPACITY_KEYS:
+        return True
 
-    return any(word in text for word in battery_words) and any(word in text for word in parameter_words)
+    # Fallback très contrôlé :
+    # "Oxygen = 3200" ou "Air = 3200" peut être le compteur de base.
+    # On ne l'accepte que sur une ligne clairement liée au bateau / atmosphère.
+    if normalized in {"oxygen", "air"}:
+        lowered = row_text_full.lower()
+        if is_player_submarine_context(lowered) or contains_any(lowered, AIR_CONTEXT_WORDS):
+            return True
+
+    return False
 
 
-def create_entities_override(vanilla_entities: Path, out_entities: Path, report: PatchReport) -> None:
-    src_wb = load_workbook(vanilla_entities, data_only=False)
+def is_probable_air_capacity_row(ws: Worksheet, row: int, header_row: int, parameters_col: int | None) -> bool:
+    values = row_values(ws, row)
+    text = join_row_text(values)
+
+    if not has_air_context(text):
+        return False
+
+    lowered = text.lower()
+    if contains_any(lowered, CONSUMPTION_BANNED_WORDS):
+        return False
+
+    if parameters_col is not None and ws.cell(row, parameters_col).value:
+        params = str(ws.cell(row, parameters_col).value)
+        for match in KEY_VALUE_PATTERN.finditer(params):
+            value = safe_float((match.group("number") or "") + (match.group("percent") or ""))
+            if value is not None and is_air_capacity_key(match.group("key"), text, value):
+                return True
+
+    headers = find_columns_by_header(ws, header_row)
+    header_text_by_col = {
+        col: norm_text(ws.cell(header_row, col).value)
+        for col in range(1, ws.max_column + 1)
+    }
+
+    for col in range(2, ws.max_column + 1):
+        value = safe_float(ws.cell(row, col).value)
+        if value is None or value <= 0:
+            continue
+
+        header_text = header_text_by_col.get(col, "")
+
+        if contains_any(header_text, ("capacity", "amount", "maximum", "max", "initial", "start", "base", "value")):
+            return True
+
+        # Sans header utile, on n'accepte que de grandes valeurs typiques d'un compteur.
+        if value >= 100:
+            return True
+
+    return False
+
+
+# =============================================================================
+# PATCH DES LIGNES NON-GENERAL
+# =============================================================================
+
+def patch_parameter_cell(
+    parameters: str,
+    row_text_full: str,
+    args: argparse.Namespace,
+) -> tuple[str, list[str], dict[str, int]]:
+    """
+    Patch une cellule Parameters.
+    Retourne :
+      new_parameters, changes, counters
+    """
+    counters: dict[str, int] = {}
+    new_parameters = parameters
+    changes: list[str] = []
+    lowered_context = row_text_full.lower()
+
+    # Batterie : je garde le comportement validé en jeu, parce que tu as confirmé que la batterie fonctionne.
+    if is_accumulator_row(row_text_full):
+        accumulator_multipliers = {key: args.battery_capacity_factor for key in ACCUMULATOR_CAPACITY_KEYS}
+
+        patched, local_changes = replace_keyed_parameters(new_parameters, accumulator_multipliers)
+        if local_changes:
+            new_parameters = patched
+            changes.extend(local_changes)
+            counters["battery_capacity_rows"] = 1
+
+    # Conso électrique : on la réduit sur les équipements normaux, mais PAS sur ventilation/compresseurs.
+    # Cela évite de casser ou de rendre illisible le système d'air.
+    if (
+        not is_ventilation_row(row_text_full)
+        and not is_compressor_row(row_text_full)
+        and any(key in normalize_parameter_key(new_parameters) for key in ENERGY_USAGE_KEYS)
+    ):
+        energy_multipliers = {key: args.energy_usage_factor for key in ENERGY_USAGE_KEYS}
+        patched, local_changes = replace_keyed_parameters(new_parameters, energy_multipliers)
+        if local_changes:
+            new_parameters = patched
+            changes.extend(local_changes)
+            counters["energy_usage_rows"] = 1
+
+    # Air / atmosphère de base : c'est le nouveau levier principal.
+    # On vise les clés de capacité/stock, jamais les clés Gain/Usage/Consumption.
+    if has_air_context(row_text_full) or is_player_submarine_context(row_text_full):
+        def only_air_capacity(raw_key: str, match: re.Match[str]) -> bool:
+            parsed = safe_float((match.group("number") or "") + (match.group("percent") or ""))
+            if parsed is None:
+                return False
+            return is_air_capacity_key(raw_key, row_text_full, parsed)
+
+        air_capacity_multipliers = {key: args.air_capacity_factor for key in AIR_CAPACITY_KEYS}
+        air_capacity_multipliers.update({"Oxygen": args.air_capacity_factor, "Air": args.air_capacity_factor})
+
+        patched, local_changes = replace_keyed_parameters(
+            new_parameters,
+            air_capacity_multipliers,
+            only_when=only_air_capacity,
+        )
+
+        if local_changes:
+            new_parameters = patched
+            changes.extend(local_changes)
+            counters["air_capacity_parameter_rows"] = 1
+
+    # Ventilation : désactivé par défaut pour revenir au fonctionnement vanilla.
+    # Si tu actives explicitement --patch-ventilation, on ne touche PAS RegenerationLimit.
+    if args.patch_ventilation and is_ventilation_row(row_text_full):
+        ventilation_multipliers = {
+            "OxygenGain": args.ventilation_gain_factor,
+            "AirQualityGain": args.ventilation_gain_factor,
+            "AirGain": args.ventilation_gain_factor,
+        }
+
+        if args.energy_usage_factor != 1.0:
+            ventilation_multipliers["EnergyUsage"] = args.energy_usage_factor
+
+        patched, local_changes = replace_keyed_parameters(new_parameters, ventilation_multipliers)
+        if local_changes:
+            new_parameters = patched
+            changes.extend(local_changes)
+            counters["ventilation_rows"] = 1
+
+    # Potassium absorbers : désactivé par défaut.
+    # Si activé, on allonge seulement les durées, pas la ventilation elle-même.
+    if args.patch_potassium and contains_any(lowered_context, ("potassium", "absorber", "absorbent")):
+        potassium_multipliers = {
+            "Duration": args.potassium_duration_factor,
+            "WorkTime": args.potassium_duration_factor,
+            "WorkingTime": args.potassium_duration_factor,
+            "BurnTime": args.potassium_duration_factor,
+            "Time": args.potassium_duration_factor,
+        }
+
+        patched, local_changes = replace_keyed_parameters(new_parameters, potassium_multipliers)
+        if local_changes:
+            new_parameters = patched
+            changes.extend(local_changes)
+            counters["potassium_rows"] = 1
+
+    return new_parameters, unique_preserve_order(changes), counters
+
+
+def patch_simple_air_capacity_cells(
+    ws: Worksheet,
+    row: int,
+    header_row: int,
+    parameters_col: int | None,
+    args: argparse.Namespace,
+) -> tuple[dict[int, Any], list[str], dict[str, int]]:
+    """
+    Patch les cellules numériques d'une ligne qui représente clairement une réserve/capacité d'air,
+    même si la ligne n'utilise pas de colonne Parameters.
+    """
+    if not is_probable_air_capacity_row(ws, row, header_row, parameters_col):
+        return {}, [], {}
+
+    values_by_col: dict[int, Any] = {}
+    changes: list[str] = []
+    header_text_by_col = {
+        col: norm_text(ws.cell(header_row, col).value)
+        for col in range(1, ws.max_column + 1)
+    }
+
+    for col in range(2, ws.max_column + 1):
+        if parameters_col is not None and col == parameters_col:
+            continue
+
+        original = ws.cell(row, col).value
+        parsed = safe_float(original)
+
+        if parsed is None or parsed <= 0:
+            continue
+
+        header_text = header_text_by_col.get(col, "")
+        accept = False
+
+        if contains_any(header_text, ("capacity", "amount", "maximum", "max", "initial", "start", "base", "value")):
+            accept = True
+
+        if parsed >= 100:
+            accept = True
+
+        if not accept:
+            continue
+
+        new_value = parsed * args.air_capacity_factor
+        values_by_col[col] = new_value
+
+        label = header_text if header_text else f"colonne {col}"
+        changes.append(f"{label}: {original!r} -> {new_value!r}")
+
+    if not values_by_col:
+        return {}, [], {}
+
+    return values_by_col, changes, {"air_capacity_cell_rows": 1}
+
+
+def patch_sheet_generic(
+    src_ws: Worksheet,
+    source_label: str,
+    sheet_name: str,
+    report: PatchReport,
+    args: argparse.Namespace,
+) -> tuple[Worksheet | None, list[ModifiedRow]]:
+    header_row = find_header_row(src_ws)
+    parameters_col = find_parameters_col(src_ws, header_row)
+
+    modified_rows_by_source: dict[int, ModifiedRow] = {}
+
+    for row_idx in range(header_row + 1, src_ws.max_row + 1):
+        values = row_values(src_ws, row_idx)
+        full_text = join_row_text(values)
+        readable = readable_row_label(src_ws, row_idx)
+
+        new_values_by_col: dict[int, Any] = {}
+        changes: list[str] = []
+        counters: dict[str, int] = {}
+
+        if parameters_col is not None:
+            params_raw = src_ws.cell(row_idx, parameters_col).value
+            if params_raw is not None:
+                params = str(params_raw)
+                new_params, param_changes, param_counters = patch_parameter_cell(params, full_text, args)
+
+                if param_changes and new_params != params:
+                    new_values_by_col[parameters_col] = new_params
+                    changes.extend(param_changes)
+                    for key, value in param_counters.items():
+                        counters[key] = counters.get(key, 0) + value
+
+        simple_values, simple_changes, simple_counters = patch_simple_air_capacity_cells(
+            src_ws,
+            row_idx,
+            header_row,
+            parameters_col,
+            args,
+        )
+
+        if simple_changes:
+            new_values_by_col.update(simple_values)
+            changes.extend(simple_changes)
+            for key, value in simple_counters.items():
+                counters[key] = counters.get(key, 0) + value
+
+        if new_values_by_col:
+            modified_rows_by_source[row_idx] = ModifiedRow(
+                source_row=row_idx,
+                new_values_by_col=new_values_by_col,
+                changes=unique_preserve_order(changes),
+                readable_context=readable,
+            )
+
+            for key, value in counters.items():
+                report.inc(key, value)
+
+    return None, list(modified_rows_by_source.values())
+
+
+def create_generic_xlsx_override(
+    vanilla_xlsx: Path,
+    output_xlsx: Path,
+    report: PatchReport,
+    data_sheets_dir: Path,
+    args: argparse.Namespace,
+) -> bool:
+    """
+    Patch générique pour tous les fichiers XLSX sauf General.xlsx/Settings.
+    Crée un override minimal avec seulement les feuilles/lignes modifiées.
+    """
+    source_label = str(vanilla_xlsx.relative_to(data_sheets_dir))
+    src_wb = load_workbook(vanilla_xlsx, data_only=False)
 
     out_wb = Workbook()
-    default_sheet = out_wb.active
-    out_wb.remove(default_sheet)
+    out_wb.remove(out_wb.active)
 
-    total_changes = 0
-
-    ventilation_multipliers = {
-        "OxygenGain": VENTILATION_OXYGEN_GAIN_MULTIPLIER,
-        "RegenerationLimit": VENTILATION_REGENERATION_LIMIT_MULTIPLIER,
-        "EnergyUsage": VENTILATION_ENERGY_USAGE_MULTIPLIER,
-    }
-
-    battery_multipliers = {
-        "EnergyCapacity": BATTERY_EQUIPMENT_MULTIPLIER,
-        "BatteryCapacity": BATTERY_EQUIPMENT_MULTIPLIER,
-        "Capacity": BATTERY_EQUIPMENT_MULTIPLIER,
-        "CapacityScale": BATTERY_EQUIPMENT_MULTIPLIER,
-        "CapacityMultiplier": BATTERY_EQUIPMENT_MULTIPLIER,
-    }
+    total_rows_changed = 0
 
     for sheet_name in src_wb.sheetnames:
         src_ws = src_wb[sheet_name]
 
-        header_row, parameters_col = find_header_row_and_parameters_col(src_ws)
-        if header_row is None or parameters_col is None:
-            continue
-
-        modified_rows: list[tuple[int, str, list[str]]] = []
-
-        for row_idx in range(header_row + 1, src_ws.max_row + 1):
-            row_values = [src_ws.cell(row_idx, col).value for col in range(1, src_ws.max_column + 1)]
-            parameters_value = src_ws.cell(row_idx, parameters_col).value
-
-            if parameters_value is None:
-                continue
-
-            parameters = str(parameters_value)
-            combined_changes: list[str] = []
-            new_parameters = parameters
-
-            if should_patch_ventilation_row(row_values, parameters):
-                new_parameters, changes = scale_parameter_string(new_parameters, ventilation_multipliers)
-                combined_changes.extend(changes)
-
-            if should_patch_battery_row(row_values, parameters):
-                new_parameters, changes = scale_parameter_string(new_parameters, battery_multipliers)
-                combined_changes.extend(changes)
-
-            if combined_changes and new_parameters != parameters:
-                modified_rows.append((row_idx, new_parameters, combined_changes))
-
+        _unused, modified_rows = patch_sheet_generic(src_ws, source_label, sheet_name, report, args)
         if not modified_rows:
             continue
+
+        header_row = find_header_row(src_ws)
 
         out_ws = out_wb.create_sheet(title=sheet_name)
         copy_column_widths(src_ws, out_ws)
 
         dest_row = 1
 
+        # Copie les en-têtes nécessaires.
         for src_header_row in range(1, header_row + 1):
             copy_row(src_ws, out_ws, src_header_row, dest_row)
             dest_row += 1
 
-        for src_row_idx, new_parameters, changes in modified_rows:
-            copy_row(src_ws, out_ws, src_row_idx, dest_row)
-            out_ws.cell(dest_row, parameters_col).value = new_parameters
+        for modified in sorted(modified_rows, key=lambda item: item.source_row):
+            copy_row(src_ws, out_ws, modified.source_row, dest_row)
 
-            row_id = src_ws.cell(src_row_idx, 1).value
+            for col, new_value in modified.new_values_by_col.items():
+                out_ws.cell(dest_row, col).value = new_value
+
             report.note(
-                f"Entities.xlsx / {sheet_name} / ligne id={row_id!r}: "
-                + "; ".join(changes)
+                f"{source_label} / {sheet_name} / {modified.readable_context}: "
+                + "; ".join(modified.changes)
             )
 
             dest_row += 1
-            total_changes += 1
+            total_rows_changed += 1
 
-    if total_changes == 0:
-        report.warn(
-            "Entities.xlsx : aucune ligne ventilation/batterie patchée. "
-            "Ce n'est pas bloquant : General.xlsx modifie déjà consommation O2 et réserve d'énergie. "
-            "Si tu veux patcher une ligne précise, ouvre Entities.xlsx et vérifie le nom exact de l'équipement."
-        )
-        return
+    if total_rows_changed == 0:
+        return False
 
-    out_entities.parent.mkdir(parents=True, exist_ok=True)
-    out_wb.save(out_entities)
-    report.add_file(out_entities)
+    output_xlsx.parent.mkdir(parents=True, exist_ok=True)
+    out_wb.save(output_xlsx)
+    report.file(output_xlsx)
+    return True
 
 
 # =============================================================================
-# MANIFEST + CACHE
+# MANIFEST / README / CACHE
 # =============================================================================
 
+def make_supported_versions(game_version: str) -> list[str]:
+    gv = game_version.strip()
+    candidates = [
+        gv,
+        gv.lower(),
+        gv.replace("Patch", "patch"),
+        "2026.1",
+    ]
 
-def write_manifest(mod_dir: Path) -> None:
-    """Je crée un manifest local minimal compatible avec un mod Data Sheets."""
+    match = re.search(r"(\d{4}\.\d+)", gv)
+    if match:
+        candidates.append(match.group(1))
+
+    return unique_preserve_order(candidates)
+
+
+def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
     manifest = {
         "name": MOD_DISPLAY_NAME,
         "version": MOD_VERSION,
         "description": (
-            "Augmente l'autonomie en immersion : batterie environ 10x, "
-            "consommation d'air environ 10x plus lente, discipline/fatigue sous l'eau environ 10x moins punitive. "
-            "Mod Data Sheets sans DLL."
+            f"Immersion longue : air de base x{args.air_capacity_factor:g}, "
+            f"conso air x1/{args.oxygen_consumption_factor:g}, "
+            f"discipline x1/{args.discipline_factor:g}, "
+            f"batterie x{args.battery_capacity_factor:g}, "
+            f"EnergyUsage x{args.energy_usage_factor:g}. "
+            "cette version garde la ventilation vanilla par défaut."
         ),
         "author": MOD_AUTHOR,
-        "minGameVersion": MIN_GAME_VERSION,
+        "minGameVersion": "2026.1",
         "maxGameVersion": "",
-        "assemblyName": "",
-        "permissions": [],
+        "supportedGameVersions": make_supported_versions(args.game_version),
+        "assemblyName": MOD_ASSEMBLY_NAME,
+        "permissions": ["Reflection"],
         "steamFileId": 0,
     }
 
-    manifest_path = mod_dir / "Manifest.json"
-    manifest_path.write_text(
+    (mod_dir / "Manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def write_readme(mod_dir: Path) -> None:
-    readme = f"""# {MOD_DISPLAY_NAME}
+def write_runtime_patch_source(mod_dir: Path, report: PatchReport) -> None:
+    source_dir = mod_dir / "Source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path = source_dir / "LongSubmergedRuntimePatch.cs"
 
-Mod généré automatiquement.
+    source = r'''using System;
+using System.Collections.Generic;
+using System.Reflection;
+using HarmonyLib;
+using UBOAT.Game;
+using UBOAT.Game.Scene.Entities;
+using UnityEngine;
 
-Effets principaux :
-- Oxygen Consumption Per Character x {OXYGEN_CONSUMPTION_MULTIPLIER}
-- Energy Base Scale x {ENERGY_BASE_SCALE_MULTIPLIER}
-- Underwater Discipline Loss x {UNDERWATER_DISCIPLINE_LOSS_MULTIPLIER}
-- Fatigue - Per Day x {FATIGUE_PER_DAY_MULTIPLIER}
-- Fatigue - Max Penalty x {FATIGUE_MAX_PENALTY_MULTIPLIER}
+namespace LongSubmerged10x
+{
+    public sealed class LongSubmergedRuntimePatchMod : IUserMod
+    {
+        public string Name
+        {
+            get { return "Long Submerged 10x+ AirFix"; }
+        }
 
-Notes :
-- Active ce mod dans UBOAT Launcher > Mods.
-- Mets-le après les autres mods qui touchent General.xlsx ou Entities.xlsx.
-- Pour que les modifications de datasheets soient bien prises en compte, vide le cache UBOAT si le jeu garde d'anciennes valeurs.
-- Pour les valeurs touchant Entities.xlsx, une nouvelle carrière peut être nécessaire selon le système modifié par le jeu.
-"""
-    (mod_dir / "README_LongSubmerged10x.txt").write_text(readme, encoding="utf-8")
+        public void OnLoaded()
+        {
+            try
+            {
+                // La je charge mes patches Harmony pour recalculer l'air sur les sauvegardes existantes.
+                new Harmony("donj.longsubmerged10x.airfix").PatchAll();
+                Debug.Log("[LongSubmerged10x] AirFix runtime patch loaded.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+    }
+
+    internal static class OxygenBreathRecalculator
+    {
+        private static readonly MethodInfo ValidateOxygenBreathModifierMethod =
+            AccessTools.Method(typeof(PlayerShip), "ValidateOxygenBreathModifier");
+
+        public static void Recalculate(PlayerShip ship, string reason)
+        {
+            if (ship == null || ValidateOxygenBreathModifierMethod == null)
+                return;
+
+            try
+            {
+                // La je force le jeu a reprendre ma valeur Oxygen Consumption Per Character du fichier General.xlsx.
+                ValidateOxygenBreathModifierMethod.Invoke(ship, null);
+                Debug.Log("[LongSubmerged10x] Oxygen breath modifier recalculated after " + reason + ".");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "Awake")]
+    internal static class PlayerShipAwakePatch
+    {
+        private static void Postfix(PlayerShip __instance)
+        {
+            OxygenBreathRecalculator.Recalculate(__instance, "PlayerShip.Awake");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "SavesManagerOnLoaded")]
+    internal static class PlayerShipSavesManagerOnLoadedPatch
+    {
+        private static void Postfix(PlayerShip __instance, Queue<Action> __0)
+        {
+            OxygenBreathRecalculator.Recalculate(__instance, "SavesManagerOnLoaded");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "Crew_Added")]
+    internal static class PlayerShipCrewAddedPatch
+    {
+        private static void Postfix(PlayerShip __instance)
+        {
+            OxygenBreathRecalculator.Recalculate(__instance, "Crew_Added");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "Crew_Removed")]
+    internal static class PlayerShipCrewRemovedPatch
+    {
+        private static void Postfix(PlayerShip __instance)
+        {
+            OxygenBreathRecalculator.Recalculate(__instance, "Crew_Removed");
+        }
+    }
+}
+'''
+
+    source_path.write_text(source, encoding="utf-8")
+    report.file(source_path)
+    report.note(
+        "Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, "
+        "chargement de sauvegarde et changement d'equipage."
+    )
+
+
+def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | None = None) -> None:
+    lines = [
+        f"{MOD_DISPLAY_NAME} v{MOD_VERSION}",
+        "",
+        "Paramètres utilisés :",
+        f"- Air / atmosphère de base : capacité x{args.air_capacity_factor:g}",
+        f"- Oxygen Consumption Per Character : divisé par {args.oxygen_consumption_factor:g}",
+        f"- Discipline/fatigue sous l'eau : divisé par {args.discipline_factor:g}",
+        f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
+        f"- EnergyUsage équipements hors ventilation/compresseurs : x{args.energy_usage_factor:g}",
+        f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
+        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, recalcul de l'air apres chargement",
+        "",
+        "Installation :",
+        "1. Fermer UBOAT.",
+        "2. Générer avec --force --clear-cache.",
+        "3. Activer le mod dans le launcher.",
+        "4. Charger la sauvegarde ou démarrer une nouvelle carrière pour tester les changements d'air.",
+        "",
+        "Notes :",
+        "- La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.",
+        "- La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.",
+        "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
+        "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
+        "- Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.",
+    ]
+
+    if report is not None:
+        lines.extend(
+            [
+                "",
+                "Compteurs de génération :",
+                f"- Lignes General Oxygen Consumption : {report.counters.get('general_oxygen_consumption_rows', 0)}",
+                f"- Lignes capacité air Parameters : {report.counters.get('air_capacity_parameter_rows', 0)}",
+                f"- Lignes capacité air cellules : {report.counters.get('air_capacity_cell_rows', 0)}",
+                f"- Lignes batterie : {report.counters.get('battery_capacity_rows', 0)}",
+                f"- Lignes EnergyUsage : {report.counters.get('energy_usage_rows', 0)}",
+            ]
+        )
+
+    (mod_dir / "README_LongSubmerged10x.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_report(mod_dir: Path, report: PatchReport) -> None:
+    lines: list[str] = []
+
+    lines.append("=== Rapport Long Submerged 10x+ ===")
+    lines.append("")
+    lines.append("Compteurs :")
+    for key in sorted(report.counters):
+        lines.append(f"- {key}: {report.counters[key]}")
+
+    lines.append("")
+    lines.append("Fichiers générés :")
+    for path in report.changed_files:
+        lines.append(f"- {path}")
+
+    lines.append("")
+    lines.append("Changements :")
+    for item in report.info:
+        lines.append(f"- {item}")
+
+    if report.warnings:
+        lines.append("")
+        lines.append("Avertissements :")
+        for warning in report.warnings:
+            lines.append(f"- {warning}")
+
+    (mod_dir / "LongSubmerged10x_generation_report.txt").write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
 
 
 def clear_uboat_cache(local_uboat_dir: Path, report: PatchReport) -> None:
-    """
-    Je vide les dossiers cache connus sans supprimer les dossiers eux-mêmes.
-    """
     for folder_name in ("Cache", "Data Sheets", "Temp"):
         folder = local_uboat_dir / folder_name
+
         if not folder.exists():
             continue
 
@@ -747,127 +1446,291 @@ def clear_uboat_cache(local_uboat_dir: Path, report: PatchReport) -> None:
 
 
 # =============================================================================
-# MAIN
+# ARGUMENTS
 # =============================================================================
-
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Génère le mod UBOAT LongSubmerged10x en Data Sheets.",
+        description="Génère le mod UBOAT Long Submerged 10x+.",
     )
 
     parser.add_argument(
         "--uboat",
         type=Path,
         required=True,
-        help="Chemin du dossier d'installation UBOAT, ex: C:\\Program Files (x86)\\Steam\\steamapps\\common\\UBOAT",
+        help=r"Chemin d'installation UBOAT, ex: C:\Program Files (x86)\Steam\steamapps\common\UBOAT",
     )
 
     parser.add_argument(
         "--out",
         type=Path,
         default=default_local_mods_root() / MOD_FOLDER_NAME,
-        help="Dossier de sortie du mod. Par défaut : dossier local UBOAT Mods.",
+        help=(
+            "Dossier de sortie du mod. Par défaut : "
+            "AppData\\LocalLow\\Deep Water Studio\\UBOAT\\Mods\\LongSubmerged10x"
+        ),
     )
 
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Écrase le dossier de sortie s'il existe déjà.",
+        help="Écrase le dossier de mod existant.",
     )
 
     parser.add_argument(
         "--clear-cache",
         action="store_true",
-        help="Vide Cache, Data Sheets et Temp dans AppData\\LocalLow\\Deep Water Studio\\UBOAT après génération.",
+        help="Vide Cache, Data Sheets et Temp dans AppData\\LocalLow\\Deep Water Studio\\UBOAT.",
     )
 
-    return parser.parse_args(argv)
-
-
-def generate_mod(uboat_root: Path, out_mod_dir: Path, force: bool, clear_cache: bool) -> PatchReport:
-    uboat_root = uboat_root.expanduser().resolve()
-    out_mod_dir = out_mod_dir.expanduser().resolve()
-    out_data_sheets = out_mod_dir / "Data Sheets"
-
-    report = PatchReport(changed_files=[], warnings=[], info=[])
-
-    data_sheets_dir = resolve_data_sheets_dir(uboat_root)
-
-    vanilla_general = data_sheets_dir / "General.xlsx"
-    vanilla_entities = data_sheets_dir / "Entities.xlsx"
-
-    if not vanilla_general.exists():
-        raise FileNotFoundError(f"Fichier introuvable : {vanilla_general}")
-
-    if not vanilla_entities.exists():
-        raise FileNotFoundError(f"Fichier introuvable : {vanilla_entities}")
-
-    ensure_clean_directory(out_mod_dir, force=force)
-    out_data_sheets.mkdir(parents=True, exist_ok=True)
-
-    write_manifest(out_mod_dir)
-    write_readme(out_mod_dir)
-
-    create_general_override(
-        vanilla_general=vanilla_general,
-        out_general=out_data_sheets / "General.xlsx",
-        report=report,
+    parser.add_argument(
+        "--game-version",
+        default=DEFAULT_GAME_VERSION,
+        help='Version affichée par le launcher, ex: "2026.1 Patch 20".',
     )
 
-    create_entities_override(
-        vanilla_entities=vanilla_entities,
-        out_entities=out_data_sheets / "Entities.xlsx",
-        report=report,
+    parser.add_argument(
+        "--air-capacity-factor",
+        type=float,
+        default=DEFAULT_AIR_CAPACITY_FACTOR,
+        help="Multiplicateur de la réserve d'air/atmosphère. Défaut : 125, pour viser 7 à 8 jours.",
     )
 
-    if clear_cache:
-        local_uboat_dir = default_local_mods_root().parent
-        clear_uboat_cache(local_uboat_dir, report)
+    parser.add_argument(
+        "--oxygen-consumption-factor",
+        type=float,
+        default=DEFAULT_OXYGEN_CONSUMPTION_FACTOR,
+        help="Divise Oxygen Consumption Per Character par ce facteur. Défaut : 125.",
+    )
 
-    return report
+    parser.add_argument(
+        "--discipline-factor",
+        type=float,
+        default=DEFAULT_DISCIPLINE_FACTOR,
+        help="Divise discipline/fatigue sous l'eau par ce facteur. Défaut : 15.",
+    )
 
+    parser.add_argument(
+        "--battery-capacity-factor",
+        type=float,
+        default=DEFAULT_BATTERY_CAPACITY_FACTOR,
+        help="Multiplicateur capacité batterie / Accumulators. Défaut : 10.",
+    )
+
+    parser.add_argument(
+        "--energy-usage-factor",
+        type=float,
+        default=DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR,
+        help="Multiplicateur EnergyUsage hors ventilation/compresseurs. Défaut : 0.1.",
+    )
+
+    parser.add_argument(
+        "--patch-ventilation",
+        action="store_true",
+        default=DEFAULT_PATCH_VENTILATION,
+        help="Optionnel : patche aussi OxygenGain de la ventilation. Désactivé par défaut.",
+    )
+
+    parser.add_argument(
+        "--ventilation-gain-factor",
+        type=float,
+        default=DEFAULT_VENTILATION_GAIN_FACTOR,
+        help="Si --patch-ventilation est activé, multiplie OxygenGain par ce facteur. Défaut : 1.",
+    )
+
+    parser.add_argument(
+        "--patch-potassium",
+        action="store_true",
+        default=DEFAULT_PATCH_POTASSIUM,
+        help="Optionnel : allonge les durées des absorbeurs potassium.",
+    )
+
+    parser.add_argument(
+        "--potassium-duration-factor",
+        type=float,
+        default=DEFAULT_POTASSIUM_DURATION_FACTOR,
+        help="Si --patch-potassium est activé, multiplie les durées par ce facteur. Défaut : 1.",
+    )
+
+    parser.add_argument(
+        "--patch-energy-base-scale",
+        action="store_true",
+        default=DEFAULT_PATCH_ENERGY_BASE_SCALE,
+        help="Patche aussi General.xlsx / Energy Base Scale. Désactivé par défaut.",
+    )
+
+    args = parser.parse_args(argv)
+
+    positive_names = (
+        "air_capacity_factor",
+        "oxygen_consumption_factor",
+        "discipline_factor",
+        "battery_capacity_factor",
+        "energy_usage_factor",
+        "ventilation_gain_factor",
+        "potassium_duration_factor",
+    )
+
+    for name in positive_names:
+        value = getattr(args, name)
+        if value <= 0:
+            raise ValueError(f"--{name.replace('_', '-')} doit être > 0.")
+
+    return args
+
+
+# =============================================================================
+# MAIN
+# =============================================================================
 
 def main(argv: list[str]) -> int:
-    args = parse_args(argv)
-    out_mod_dir = args.out.expanduser().resolve()
+    try:
+        args = parse_args(argv)
+    except Exception as exc:
+        print(f"Arguments invalides : {exc}", file=sys.stderr)
+        return 2
+
+    report = PatchReport()
+    out_mod_dir: Path | None = None
 
     try:
-        report = generate_mod(
-            uboat_root=args.uboat,
-            out_mod_dir=out_mod_dir,
-            force=args.force,
-            clear_cache=args.clear_cache,
+        uboat_root = args.uboat.expanduser().resolve()
+        data_sheets_dir = resolve_data_sheets_dir(uboat_root)
+
+        out_mod_dir = args.out.expanduser().resolve()
+        out_data_sheets = out_mod_dir / "Data Sheets"
+
+        ensure_clean_directory(out_mod_dir, force=args.force)
+        out_data_sheets.mkdir(parents=True, exist_ok=True)
+
+        write_manifest(out_mod_dir, args)
+        write_runtime_patch_source(out_mod_dir, report)
+
+        # 1) General.xlsx et Realistic Travel/General.xlsx.
+        general_patches = build_general_patches(args)
+        general_changed = 0
+
+        for vanilla_general in find_datasheet_files(data_sheets_dir, "General.xlsx"):
+            relative = vanilla_general.relative_to(data_sheets_dir)
+            output_general = out_data_sheets / relative
+
+            if create_general_override(
+                vanilla_general,
+                output_general,
+                general_patches,
+                report,
+                data_sheets_dir,
+            ):
+                general_changed += 1
+
+        if general_changed == 0:
+            report.warn(
+                "Aucun General.xlsx patché. "
+                "La ligne Oxygen Consumption Per Character et la discipline ne changeront pas."
+            )
+
+        # 2) XLSX de gameplay : batterie, EnergyUsage, capacité d'air exposée dans Parameters/cellules.
+        # Je ne scanne pas les gros fichiers Locales/Story/Graphics : ils ne portent pas ces systèmes
+        # et ralentissent inutilement la génération.
+        generic_changed = 0
+        generic_targets = (
+            "Entities.xlsx",
+            "U-boat.xlsx",
+            "Sandbox.xlsx",
+            "CharacterClasses.xlsx",
         )
 
+        for target_name in generic_targets:
+            for vanilla_xlsx in find_datasheet_files(data_sheets_dir, target_name):
+                relative = vanilla_xlsx.relative_to(data_sheets_dir)
+                output_xlsx = out_data_sheets / relative
+
+                if create_generic_xlsx_override(
+                    vanilla_xlsx,
+                    output_xlsx,
+                    report,
+                    data_sheets_dir,
+                    args,
+                ):
+                    generic_changed += 1
+
+        if generic_changed == 0:
+            report.warn(
+                "Aucun XLSX hors General.xlsx n'a été patché. "
+                "La batterie ou la capacité air exposée dans Entities/U-boat ne changera peut-être pas."
+            )
+
+        # Alertes ciblées.
+        air_rows = (
+            report.counters.get("air_capacity_parameter_rows", 0)
+            + report.counters.get("air_capacity_cell_rows", 0)
+        )
+
+        if air_rows == 0:
+            report.warn(
+                "Aucune ligne de capacité d'air/atmosphère n'a été trouvée. "
+                "Le mod a quand même réduit Oxygen Consumption Per Character, mais si l'UI reste à 13h, "
+                "il faudra récupérer dans le rapport la ligne contenant Air/Oxygen/Atmosphere du fichier local."
+            )
+
+        if report.counters.get("battery_capacity_rows", 0) == 0:
+            report.warn(
+                "Aucune ligne Accumulators/Battery patchée. "
+                "Si la batterie ne reste pas longue durée, vérifie le nom local de la ligne accumulateurs."
+            )
+
+        if args.clear_cache:
+            clear_uboat_cache(default_local_uboat_dir(), report)
+
+        write_readme(out_mod_dir, args, report)
+        write_report(out_mod_dir, report)
+
     except Exception as exc:
-        print("\nERREUR : génération du mod impossible.", file=sys.stderr)
+        print("\nERREUR : génération impossible.", file=sys.stderr)
         print(str(exc), file=sys.stderr)
         return 1
 
-    print("\n=== Mod généré avec succès ===")
+    assert out_mod_dir is not None
+
+    print("\n=== Long Submerged 10x+ généré avec succès ===")
     print(f"Dossier du mod : {out_mod_dir}")
+    print(f"Version déclarée : {args.game_version}")
 
-    print("\nFichiers modifiés/générés :")
-    for changed in report.changed_files:
-        print(f"  - {changed}")
+    print("\nProfil appliqué :")
+    print(f"  - Air / atmosphère de base : x{args.air_capacity_factor:g}")
+    print(f"  - Oxygen Consumption Per Character : /{args.oxygen_consumption_factor:g}")
+    print(f"  - Discipline/fatigue : /{args.discipline_factor:g}")
+    print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
+    print(f"  - EnergyUsage hors ventilation/compresseurs : x{args.energy_usage_factor:g}")
+    print(f"  - Ventilation vanilla : {'NON, patchée' if args.patch_ventilation else 'OUI, laissée normale'}")
 
-    if report.info:
-        print("\nDétails des changements :")
-        for item in report.info:
-            print(f"  - {item}")
+    print("\nCompteurs importants :")
+    print(f"  - General Oxygen Consumption : {report.counters.get('general_oxygen_consumption_rows', 0)}")
+    print(f"  - Capacité air dans Parameters : {report.counters.get('air_capacity_parameter_rows', 0)}")
+    print(f"  - Capacité air dans cellules : {report.counters.get('air_capacity_cell_rows', 0)}")
+    print(f"  - Batterie : {report.counters.get('battery_capacity_rows', 0)}")
+    print(f"  - EnergyUsage : {report.counters.get('energy_usage_rows', 0)}")
+
+    print("\nFichiers générés :")
+    print(f"  - {out_mod_dir / 'Manifest.json'}")
+    print(f"  - {out_mod_dir / 'README_LongSubmerged10x.txt'}")
+    print(f"  - {out_mod_dir / 'LongSubmerged10x_generation_report.txt'}")
+    for file_path in report.changed_files:
+        print(f"  - {file_path}")
 
     if report.warnings:
         print("\nAvertissements :")
         for warning in report.warnings:
             print(f"  - {warning}")
 
-    print("\nÉtapes suivantes :")
-    print("  1. Lance UBOAT Launcher.")
-    print("  2. Va dans Mods.")
-    print(f"  3. Active '{MOD_DISPLAY_NAME}'.")
-    print("  4. Mets-le après les autres mods qui modifient General.xlsx ou Entities.xlsx.")
-    print("  5. Lance une nouvelle carrière si les changements d'air/ventilation ne s'appliquent pas sur une sauvegarde existante.")
+    print("\nÉtapes obligatoires :")
+    print("  1. Ferme complètement UBOAT.")
+    print("  2. Lance le script avec --force --clear-cache.")
+    print("  3. Active Long Submerged 10x+ dans le launcher.")
+    print("  4. Place-le après les autres mods qui touchent General.xlsx, Entities.xlsx ou U-boat.xlsx.")
+    print("  5. Charge ta sauvegarde existante ou lance une nouvelle carrière.")
+    print("  6. Plonge à 100% air : le tooltip doit passer d'environ 13h à environ 8 jours.")
+    print("  7. Si la ventilation était cassée par une ancienne version, celle-ci doit la remettre vanilla car elle ne copie plus la ligne Ventilation.")
 
     return 0
 

@@ -13,7 +13,7 @@ Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus l
 - Discipline et fatigue adaptées à l'immersion longue :
   - les pertes sous l'eau sont réduites proportionnellement.
 - Ventilation laissée vanilla :
-  - la ligne `Ventilation` n'est plus modifiée par défaut pour éviter les bugs de la v2.
+  - la ligne `Ventilation` n'est plus modifiée par défaut pour éviter les bugs vus dans les essais précédents.
 - Patch runtime AirFix :
   - UBOAT garde parfois l'ancien modifier d'oxygène sur une sauvegarde existante ;
   - le patch Harmony force le recalcul de `OxygenBreathModifier` après chargement, `Awake`, ajout ou retrait d'équipage.
@@ -51,7 +51,7 @@ Le dossier prêt à installer est déjà inclus dans `LongSubmerged10x/`. Pour l
 
 ```powershell
 python -m pip install -r requirements.txt
-python .\build_uboat_long_submerged_mod_v3_airfix.py --uboat "C:\Program Files (x86)\Steam\steamapps\common\UBOAT" --force --clear-cache
+python .\build_uboat_long_submerged_mod.py --uboat "C:\Program Files (x86)\Steam\steamapps\common\UBOAT" --force --clear-cache
 ```
 
 Options principales :
@@ -64,8 +64,7 @@ Options principales :
 ## Structure du dépôt
 
 - `LongSubmerged10x/` : mod prêt à installer.
-- `build_uboat_long_submerged_mod_v3_airfix.py` : générateur actuel à utiliser.
-- `build_uboat_long_submerged_mod.py` et `build_uboat_long_submerged_mod_v2.py` : anciennes versions conservées pour historique et tests.
+- `build_uboat_long_submerged_mod.py` : générateur officiel actuel.
 - `tests/` : tests unitaires du générateur.
 - `tools/AssemblyInspector/` : outil local d'inspection IL utilisé pour comprendre le chargement des datasheets et le recalcul d'oxygène.
 

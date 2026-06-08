@@ -18,7 +18,7 @@ Installation :
 Notes :
 - La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.
 - La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.
-- La ventilation reste vanilla par défaut pour éviter le bug de la v2.
+- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.
 - Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.
 
