@@ -1,6 +1,9 @@
 __pycache__/
 *.py[cod]
 
+# Sortie de génération locale. Le package public prêt à installer reste dans mod-here/.
+/LongSubmerged10x/
+
 # Builds .NET de l'outil d'inspection local.
 tools/**/bin/
 tools/**/obj/
