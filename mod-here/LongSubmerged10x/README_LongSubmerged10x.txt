@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.4.7
+Long Submerged 10x+ v1.4.8
 
 Paramètres utilisés :
 - Oxygene long : applique au runtime sur le drain negatif de respiration
@@ -6,16 +6,16 @@ Paramètres utilisés :
 - Discipline/fatigue sous l'eau : divisé par 15
 - Batterie / Accumulators : x10
 - EnergyUsage consommateurs hors ventilation/compresseurs : x0.1 dans les datasheets
-- Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut
+- Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum
 - EnergyUsage recharge/production batterie : vanilla
-- Deux derniers crans avant : vitesse/propulsion x3.5
+- Deux derniers crans avant : vitesse/propulsion x8
 - Deux derniers crans avant : carburant x8
 - Vitesse max sous-marin joueur : 45 km/h
-- Sliders F10 : Batterie, Oxygene, SuperVitesse et Torpilles de 1 a 100
+- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10
 - Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie
 - Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours
-- Slider SuperVitesse : 1 = vanilla, 3.5 = defaut actuel, 100 = extreme
-- Slider Torpilles : 1 = vanilla, 10 = defaut actuel, 100 = extreme
+- Slider SuperVitesse : 1 = vanilla, 8 = defaut actuel, 20 = maximum
+- Slider Torpilles : 1 = vanilla, 10 = maximum
 - Bouton Par defaut : restaure les reglages du profil actuel
 - Mega torpilles : oui
 - Mega torpilles degats : x10
@@ -29,7 +29,7 @@ Paramètres utilisés :
 - Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_4_7, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme
+- Patch runtime : LongSubmerged10xPatch_1_4_8, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme
 
 Installation :
 1. Fermer UBOAT.
@@ -44,7 +44,7 @@ Notes :
 - Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.
 - Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.
 - Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.
-- Les sliders F10 sont persistants et s'appliquent directement en partie avec Reappliquer maintenant ou au changement de valeur.
+- Les sliders F10 sont persistants et s'appliquent en partie avec un debounce ou Reappliquer maintenant.
 - Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.
 - Les crans rapides consomment plus de carburant pour garder une autonomie logique.
 - Les torpilles gardent leur vitesse/portee vanilla ; les degats, explosions, rates et le guidage verrouille sont geres en runtime.
@@ -60,8 +60,8 @@ Compteurs de génération :
 - Lignes batterie : 3
 - Lignes EnergyUsage consommation : 6
 - Lignes EnergyUsage recharge : 0
-- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut
-- Menu F10 : sliders runtime 1-100 et bouton Par defaut
-- SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant
-- Lignes vitesse sous-marin joueur : 8
-- Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee
+- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum
+- Menu F10 : sliders runtime bornes par profil et bouton Par defaut
+- SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant
+- Lignes vitesse sous-marin joueur : 0
+- Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee

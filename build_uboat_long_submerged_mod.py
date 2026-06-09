@@ -47,19 +47,18 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.4.7"
+MOD_VERSION = "1.4.8"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_7"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_8"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
-# Ton retour en jeu donne environ 6 à 7 jours avec le réglage 125.
-# 1800 / 125 = x14.4, donc je vise environ 90 jours en conditions réelles.
+# DonJ : le slider oxygene 100 vise environ 90 jours en conditions reelles.
 DEFAULT_AIR_CAPACITY_FACTOR = 1.0
 
 # On garde aussi la baisse de consommation par personnage, mais ce n'est plus le levier principal :
 # certaines versions / configs semblent garder un minimum visible dans l'UI, par exemple "Équipage -4/min".
-DEFAULT_OXYGEN_CONSUMPTION_FACTOR = 1800.0
+DEFAULT_OXYGEN_CONSUMPTION_FACTOR = 250.0
 
 # Discipline/fatigue proportionnelles à l'immersion longue.
 DEFAULT_DISCIPLINE_FACTOR = 15.0
@@ -69,10 +68,11 @@ DEFAULT_BATTERY_CAPACITY_FACTOR = 10.0
 DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR = 0.10
 
 # Vitesse : seuls les deux derniers crans avant sont boostes.
-DEFAULT_FAST_SPEED_FACTOR = 3.5
+DEFAULT_FAST_SPEED_FACTOR = 8.0
 DEFAULT_FAST_SPEED_FUEL_FACTOR = 8.0
 DEFAULT_FAST_SPEED_TOP_GEARS = 2
 DEFAULT_PLAYER_SUBMARINE_MAX_SPEED = 45.0
+DEFAULT_PATCH_PLAYER_SUBMARINE_SPEED_ROWS = False
 
 # Mega torpilles : active par defaut, parce que le mod doit livrer le comportement demande.
 # Je touche uniquement aux degats et aux effets d'explosion, pas a la vitesse ni a la portee.
@@ -1158,6 +1158,11 @@ def patch_player_submarine_speed_cells(
     header_row: int,
     args: argparse.Namespace,
 ) -> tuple[dict[int, Any], list[str], dict[str, int]]:
+    # 1.4.8 : la vitesse doit etre controlee par le runtime F10.
+    # On ne copie plus de lignes Types joueur dans Entities.xlsx, sinon x1 resterait deja modde.
+    if not getattr(args, "patch_player_submarine_speed_rows", False):
+        return {}, [], {}
+
     if norm_text(ws.title) != "types":
         return {}, [], {}
 
@@ -1371,7 +1376,7 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"{args.fast_speed_top_gears} crans rapides vitesse x{args.fast_speed_factor:g}, "
             f"carburant rapide x{args.fast_speed_fuel_factor:g}, "
             f"vitesse max joueur {args.player_submarine_max_speed:g} km/h, menu runtime F10. "
-            "sliders runtime 1-100 pour batterie, oxygene, SuperVitesse et torpilles. "
+            "sliders runtime bornes par profil pour batterie, oxygene, SuperVitesse et torpilles. "
             + (
                 f"mega torpilles : degats torpilles x{args.torpedo_damage_factor:g}, "
                 f"effets visuels d'explosion bornes x{args.torpedo_explosion_radius_factor:g} pour stabilite. "
@@ -1393,6 +1398,18 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
         "permissions": ["Reflection"],
         "steamFileId": 0,
     }
+
+    manifest["description"] = (
+        "Immersion longue : oxygene runtime calibre 1=vanilla et 100=environ 90 jours, "
+        "recharge surface vanilla, aucune capacite d'air XLSX modifiee, "
+        f"discipline x1/{args.discipline_factor:g}, "
+        "batterie reglable 1=vanilla, 10=x10, 100=infinie, "
+        "consommation electrique runtime restauree proprement, "
+        "SuperVitesse reglable 1=x1 a 20=x20 sur les crans rapides, "
+        "torpilles reglables 1=x1 a 10=x10, "
+        "menu runtime F10 debounce pour eviter les freezes de slider, "
+        "AirCompressor et Ventilation vanilla."
+    )
 
     (mod_dir / "Manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -1450,7 +1467,7 @@ namespace LongSubmerged10x
 
             // DonJ : je patche chaque hook un par un. Un patch rate ne doit jamais empecher la batterie,
             // l'oxygene, les torpilles ou le menu de continuer a fonctionner avec les autres hooks valides.
-            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.airfix"));
+            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix148"));
 
             try
             {
@@ -1518,19 +1535,32 @@ namespace LongSubmerged10x
         }
     }
 
-    // DonJ : etat runtime sauvegarde par le menu F10. Les sliders restent entre 1 et 100 :
-    // 1 = comportement proche vanilla, 100 = maximum du mod, avec batterie infinie au cran 100.
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 10;
+        private const int RuntimeSettingsVersion = 11;
+
         public const float MinRuntimeFactor = 1f;
-        public const float MaxRuntimeFactor = 100f;
+        public const float BatteryMaxFactor = 100f;
+        public const float OxygenMaxFactor = 100f;
+        public const float SpeedMaxFactor = 20f;
+        public const float TorpedoMaxFactor = 10f;
+
+        // Compatibilite interne : les anciens blocs utilisaient MaxRuntimeFactor pour Batterie/Oxygene.
+        // Les sliders vitesse et torpilles ont maintenant leurs propres bornes.
+        public const float MaxRuntimeFactor = BatteryMaxFactor;
+
         private const bool DefaultMegaBattery = true;
         private const bool DefaultMegaOxygen = true;
         private const bool DefaultSuperSpeed = true;
         private const bool DefaultMegaTorpedoes = __DEFAULT_MEGA_TORPEDOES__;
-        private const float DefaultBatteryFactor = 100f;
+
+        // DonJ : defauts lisibles en jeu.
+        // Batterie x10 finie par defaut, cran 100 = batterie infinie.
+        // Oxygene 100 = profil calibre environ 90 jours.
+        // Vitesse x8 par defaut, reglable jusqu'a x20.
+        // Torpilles x10 maximum.
+        private const float DefaultBatteryFactor = 10f;
         private const float DefaultOxygenFactor = 100f;
         private const float DefaultSpeedFactor = __FAST_SPEED_FACTOR__;
         private const float DefaultTorpedoFactor = __TORPEDO_DAMAGE_FACTOR__;
@@ -1548,8 +1578,9 @@ namespace LongSubmerged10x
         {
             if (PlayerPrefs.GetInt(PrefPrefix + "RuntimeSettingsVersion", 0) < RuntimeSettingsVersion)
             {
-                // DonJ : quand je change le modele de reglages, je force les nouveaux defauts propres
-                // pour eviter qu'une vieille sauvegarde PlayerPrefs garde un profil casse.
+                // DonJ : migration volontaire en 1.4.8.
+                // Les anciennes prefs pouvaient garder Batterie=100, Vitesse=56 ou Torpilles=100.
+                // Je force donc des defauts propres avec les nouvelles bornes par slider.
                 ResetToDefaults();
                 Save();
                 Debug.Log("[LongSubmerged10x] Runtime settings migrated to defaults v" + RuntimeSettingsVersion + ".");
@@ -1560,22 +1591,27 @@ namespace LongSubmerged10x
             MegaOxygen = ReadBool("MegaOxygen", DefaultMegaOxygen);
             SuperSpeed = ReadBool("SuperSpeed", DefaultSuperSpeed);
             MegaTorpedoes = ReadBool("MegaTorpedoes", DefaultMegaTorpedoes);
-            BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor);
-            OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor);
-            SpeedFactor = ReadFactor("SpeedFactor", DefaultSpeedFactor);
-            TorpedoFactor = ReadFactor("TorpedoFactor", DefaultTorpedoFactor);
+            BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor, BatteryMaxFactor);
+            OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor, OxygenMaxFactor);
+            SpeedFactor = ReadFactor("SpeedFactor", DefaultSpeedFactor, SpeedMaxFactor);
+            TorpedoFactor = ReadFactor("TorpedoFactor", DefaultTorpedoFactor, TorpedoMaxFactor);
         }
 
         public static void Save()
         {
+            BatteryFactor = ClampBatteryFactor(BatteryFactor);
+            OxygenFactor = ClampOxygenFactor(OxygenFactor);
+            SpeedFactor = ClampSpeedFactor(SpeedFactor);
+            TorpedoFactor = ClampTorpedoFactor(TorpedoFactor);
+
             PlayerPrefs.SetInt(PrefPrefix + "MegaBattery", MegaBattery ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaOxygen", MegaOxygen ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "SuperSpeed", SuperSpeed ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaTorpedoes", MegaTorpedoes ? 1 : 0);
-            PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", ClampFactor(BatteryFactor));
-            PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", ClampFactor(OxygenFactor));
-            PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", ClampFactor(SpeedFactor));
-            PlayerPrefs.SetFloat(PrefPrefix + "TorpedoFactor", ClampFactor(TorpedoFactor));
+            PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", BatteryFactor);
+            PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", OxygenFactor);
+            PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", SpeedFactor);
+            PlayerPrefs.SetFloat(PrefPrefix + "TorpedoFactor", TorpedoFactor);
             PlayerPrefs.SetInt(PrefPrefix + "RuntimeSettingsVersion", RuntimeSettingsVersion);
             PlayerPrefs.Save();
         }
@@ -1594,10 +1630,35 @@ namespace LongSubmerged10x
 
         public static float ClampFactor(float value)
         {
+            return ClampFactor(value, MaxRuntimeFactor);
+        }
+
+        public static float ClampBatteryFactor(float value)
+        {
+            return ClampFactor(value, BatteryMaxFactor);
+        }
+
+        public static float ClampOxygenFactor(float value)
+        {
+            return ClampFactor(value, OxygenMaxFactor);
+        }
+
+        public static float ClampSpeedFactor(float value)
+        {
+            return ClampFactor(value, SpeedMaxFactor);
+        }
+
+        public static float ClampTorpedoFactor(float value)
+        {
+            return ClampFactor(value, TorpedoMaxFactor);
+        }
+
+        public static float ClampFactor(float value, float maxValue)
+        {
             if (float.IsNaN(value) || float.IsInfinity(value))
                 return MinRuntimeFactor;
 
-            return Mathf.Clamp(value, MinRuntimeFactor, MaxRuntimeFactor);
+            return Mathf.Clamp(value, MinRuntimeFactor, Mathf.Max(MinRuntimeFactor, maxValue));
         }
 
         private static bool ReadBool(string key, bool fallback)
@@ -1605,9 +1666,9 @@ namespace LongSubmerged10x
             return PlayerPrefs.GetInt(PrefPrefix + key, fallback ? 1 : 0) != 0;
         }
 
-        private static float ReadFactor(string key, float fallback)
+        private static float ReadFactor(string key, float fallback, float maxValue)
         {
-            return ClampFactor(PlayerPrefs.GetFloat(PrefPrefix + key, fallback));
+            return ClampFactor(PlayerPrefs.GetFloat(PrefPrefix + key, fallback), maxValue);
         }
     }
 
@@ -1618,6 +1679,7 @@ namespace LongSubmerged10x
         private const KeyCode MenuKey = KeyCode.F10;
         private const int CanvasSortingOrder = 32000;
         private const float BatteryMaintenanceIntervalSeconds = 0.20f;
+        private const float RuntimeApplyDebounceSeconds = 0.12f;
         private static LongSubmergedMenuController instance;
         private static Font cachedFont;
 
@@ -1637,6 +1699,9 @@ namespace LongSubmerged10x
         private bool visible;
         private bool suppressToggleEvents;
         private float nextBatteryMaintenanceTime;
+        private bool pendingRuntimeApply;
+        private float pendingRuntimeApplyTime;
+        private string pendingRuntimeApplyReason;
         private bool cursorCaptured;
         private bool previousCursorVisible;
         private CursorLockMode previousCursorLockState;
@@ -1670,6 +1735,7 @@ namespace LongSubmerged10x
 
         private void OnDestroy()
         {
+            FlushPendingRuntimeApply("menu destroyed");
             RestoreCursorIfNeeded();
 
             if (instance == this)
@@ -1684,6 +1750,7 @@ namespace LongSubmerged10x
             if (visible && Input.GetKeyDown(KeyCode.Escape))
                 SetVisible(false, "Escape");
 
+            RunPendingRuntimeApplyTick();
             RunBatteryMaintenanceTick();
         }
 
@@ -1700,6 +1767,37 @@ namespace LongSubmerged10x
 
             nextBatteryMaintenanceTime = now + BatteryMaintenanceIntervalSeconds;
             LongSubmergedRuntimeApplier.MaintainBatteryRuntime("runtime heartbeat");
+        }
+
+        private void RunPendingRuntimeApplyTick()
+        {
+            if (!pendingRuntimeApply)
+                return;
+
+            if (Time.unscaledTime < pendingRuntimeApplyTime)
+                return;
+
+            FlushPendingRuntimeApply("unity ui debounced");
+        }
+
+        private void QueueRuntimeApply(string reason)
+        {
+            pendingRuntimeApply = true;
+            pendingRuntimeApplyReason = string.IsNullOrEmpty(reason) ? "unity ui change" : reason;
+            pendingRuntimeApplyTime = Time.unscaledTime + RuntimeApplyDebounceSeconds;
+        }
+
+        private void FlushPendingRuntimeApply(string fallbackReason)
+        {
+            if (!pendingRuntimeApply)
+                return;
+
+            pendingRuntimeApply = false;
+            string reason = string.IsNullOrEmpty(pendingRuntimeApplyReason) ? fallbackReason : pendingRuntimeApplyReason;
+            pendingRuntimeApplyReason = null;
+
+            LongSubmergedRuntimeSettings.Save();
+            LongSubmergedRuntimeApplier.ApplyAll(reason);
         }
 
         private void EnsureUi()
@@ -1760,16 +1858,16 @@ namespace LongSubmerged10x
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
 
             megaBatteryToggle = CreateToggle(panelObject.transform, "Mega Batterie", new Vector2(20f, -82f));
-            batteryFactorSlider = CreateFactorSlider(panelObject.transform, "Batterie", new Vector2(20f, -118f), out batteryFactorValueText);
+            batteryFactorSlider = CreateFactorSlider(panelObject.transform, "Batterie", LongSubmergedRuntimeSettings.BatteryMaxFactor, new Vector2(20f, -118f), out batteryFactorValueText);
 
             megaOxygenToggle = CreateToggle(panelObject.transform, "Mega Oxygene", new Vector2(20f, -158f));
-            oxygenFactorSlider = CreateFactorSlider(panelObject.transform, "Oxygene", new Vector2(20f, -194f), out oxygenFactorValueText);
+            oxygenFactorSlider = CreateFactorSlider(panelObject.transform, "Oxygene", LongSubmergedRuntimeSettings.OxygenMaxFactor, new Vector2(20f, -194f), out oxygenFactorValueText);
 
             superSpeedToggle = CreateToggle(panelObject.transform, "SuperVitesse", new Vector2(20f, -234f));
-            speedFactorSlider = CreateFactorSlider(panelObject.transform, "Vitesses rapides", new Vector2(20f, -270f), out speedFactorValueText);
+            speedFactorSlider = CreateFactorSlider(panelObject.transform, "Vitesses rapides", LongSubmergedRuntimeSettings.SpeedMaxFactor, new Vector2(20f, -270f), out speedFactorValueText);
 
             megaTorpedoesToggle = CreateToggle(panelObject.transform, "Mega Torpilles", new Vector2(20f, -310f));
-            torpedoFactorSlider = CreateFactorSlider(panelObject.transform, "Torpilles", new Vector2(20f, -346f), out torpedoFactorValueText);
+            torpedoFactorSlider = CreateFactorSlider(panelObject.transform, "Torpilles", LongSubmergedRuntimeSettings.TorpedoMaxFactor, new Vector2(20f, -346f), out torpedoFactorValueText);
 
             Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -430f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
@@ -1797,6 +1895,9 @@ namespace LongSubmerged10x
             if (panelObject == null || visible == value)
                 return;
 
+            if (!value)
+                FlushPendingRuntimeApply("menu close");
+
             visible = value;
             panelObject.SetActive(visible);
 
@@ -1818,18 +1919,9 @@ namespace LongSubmerged10x
             if (suppressToggleEvents)
                 return;
 
-            // DonJ : un changement UI met a jour l'etat runtime, sauvegarde PlayerPrefs,
-            // puis reapplique le mod sur les objets deja charges dans la scene.
-            LongSubmergedRuntimeSettings.MegaBattery = megaBatteryToggle != null && megaBatteryToggle.isOn;
-            LongSubmergedRuntimeSettings.MegaOxygen = megaOxygenToggle != null && megaOxygenToggle.isOn;
-            LongSubmergedRuntimeSettings.SuperSpeed = superSpeedToggle != null && superSpeedToggle.isOn;
-            LongSubmergedRuntimeSettings.MegaTorpedoes = megaTorpedoesToggle != null && megaTorpedoesToggle.isOn;
-            LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider);
-            LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider);
-            LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider);
-            LongSubmergedRuntimeSettings.TorpedoFactor = ReadSliderFactor(torpedoFactorSlider);
-            LongSubmergedRuntimeSettings.Save();
-            LongSubmergedRuntimeApplier.ApplyAll("unity ui toggle");
+            ReadControlStateIntoSettings();
+            RefreshFactorLabels();
+            QueueRuntimeApply("unity ui toggle");
         }
 
         private void OnFactorSliderChanged(float ignored)
@@ -1837,12 +1929,28 @@ namespace LongSubmerged10x
             if (suppressToggleEvents)
                 return;
 
-            OnToggleChanged(false);
+            ReadControlStateIntoSettings();
             RefreshFactorLabels();
+            QueueRuntimeApply("unity ui slider");
+        }
+
+        private void ReadControlStateIntoSettings()
+        {
+            // DonJ : un changement UI met a jour l'etat runtime immediatement pour les labels.
+            // Save + ApplyAll sont debounces, sinon chaque pas de slider lance un scan complet de la scene.
+            LongSubmergedRuntimeSettings.MegaBattery = megaBatteryToggle != null && megaBatteryToggle.isOn;
+            LongSubmergedRuntimeSettings.MegaOxygen = megaOxygenToggle != null && megaOxygenToggle.isOn;
+            LongSubmergedRuntimeSettings.SuperSpeed = superSpeedToggle != null && superSpeedToggle.isOn;
+            LongSubmergedRuntimeSettings.MegaTorpedoes = megaTorpedoesToggle != null && megaTorpedoesToggle.isOn;
+            LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryMaxFactor);
+            LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenMaxFactor);
+            LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor);
+            LongSubmergedRuntimeSettings.TorpedoFactor = ReadSliderFactor(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
         }
 
         private void OnDefaultsClicked()
         {
+            pendingRuntimeApply = false;
             LongSubmergedRuntimeSettings.ResetToDefaults();
             LongSubmergedRuntimeSettings.Save();
             RefreshControlState();
@@ -1851,6 +1959,8 @@ namespace LongSubmerged10x
 
         private void OnRefreshClicked()
         {
+            FlushPendingRuntimeApply("unity ui refresh");
+            LongSubmergedRuntimeSettings.Save();
             LongSubmergedRuntimeApplier.ApplyAll("unity ui refresh");
         }
 
@@ -1870,10 +1980,10 @@ namespace LongSubmerged10x
             if (megaTorpedoesToggle != null)
                 megaTorpedoesToggle.isOn = LongSubmergedRuntimeSettings.MegaTorpedoes;
 
-            SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor);
-            SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor);
-            SetSliderValue(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedFactor);
-            SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor);
+            SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor, LongSubmergedRuntimeSettings.BatteryMaxFactor);
+            SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor, LongSubmergedRuntimeSettings.OxygenMaxFactor);
+            SetSliderValue(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedFactor, LongSubmergedRuntimeSettings.SpeedMaxFactor);
+            SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
             RefreshFactorLabels();
 
             suppressToggleEvents = false;
@@ -1881,31 +1991,50 @@ namespace LongSubmerged10x
 
         private void RefreshFactorLabels()
         {
-            SetFactorLabel(batteryFactorValueText, batteryFactorSlider, "x", batteryFactorSlider != null && batteryFactorSlider.value >= LongSubmergedRuntimeSettings.MaxRuntimeFactor ? "inf" : null);
-            SetFactorLabel(oxygenFactorValueText, oxygenFactorSlider, "x", oxygenFactorSlider != null && oxygenFactorSlider.value >= LongSubmergedRuntimeSettings.MaxRuntimeFactor ? "90j" : null);
-            SetFactorLabel(speedFactorValueText, speedFactorSlider, "x", null);
-            SetFactorLabel(torpedoFactorValueText, torpedoFactorSlider, "x", null);
+            SetFactorLabel(
+                batteryFactorValueText,
+                batteryFactorSlider,
+                LongSubmergedRuntimeSettings.BatteryMaxFactor,
+                "x",
+                batteryFactorSlider != null && batteryFactorSlider.value >= LongSubmergedRuntimeSettings.BatteryMaxFactor ? "inf" : null
+            );
+
+            SetFactorLabel(
+                oxygenFactorValueText,
+                oxygenFactorSlider,
+                LongSubmergedRuntimeSettings.OxygenMaxFactor,
+                "x",
+                oxygenFactorSlider != null && oxygenFactorSlider.value >= LongSubmergedRuntimeSettings.OxygenMaxFactor ? "90j" : null
+            );
+
+            SetFactorLabel(speedFactorValueText, speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor, "x", null);
+            SetFactorLabel(torpedoFactorValueText, torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoMaxFactor, "x", null);
         }
 
-        private static void SetSliderValue(Slider slider, float value)
+        private static void SetSliderValue(Slider slider, float value, float maxValue)
         {
             if (slider == null)
                 return;
 
-            slider.value = LongSubmergedRuntimeSettings.ClampFactor(value);
+            slider.minValue = LongSubmergedRuntimeSettings.MinRuntimeFactor;
+            slider.maxValue = maxValue;
+            slider.wholeNumbers = true;
+            slider.value = LongSubmergedRuntimeSettings.ClampFactor(value, maxValue);
         }
 
-        private static float ReadSliderFactor(Slider slider)
+        private static float ReadSliderFactor(Slider slider, float maxValue)
         {
-            return slider == null ? LongSubmergedRuntimeSettings.MinRuntimeFactor : LongSubmergedRuntimeSettings.ClampFactor(slider.value);
+            return slider == null
+                ? LongSubmergedRuntimeSettings.MinRuntimeFactor
+                : LongSubmergedRuntimeSettings.ClampFactor(slider.value, maxValue);
         }
 
-        private static void SetFactorLabel(Text text, Slider slider, string prefix, string suffixOverride)
+        private static void SetFactorLabel(Text text, Slider slider, float maxValue, string prefix, string suffixOverride)
         {
             if (text == null || slider == null)
                 return;
 
-            float value = LongSubmergedRuntimeSettings.ClampFactor(slider.value);
+            float value = LongSubmergedRuntimeSettings.ClampFactor(slider.value, maxValue);
             text.text = suffixOverride == null ? prefix + value.ToString("0") : suffixOverride;
         }
 
@@ -1931,7 +2060,7 @@ namespace LongSubmerged10x
             cursorCaptured = false;
         }
 
-        private Slider CreateFactorSlider(Transform parent, string label, Vector2 anchoredPosition, out Text valueText)
+        private Slider CreateFactorSlider(Transform parent, string label, float maxValue, Vector2 anchoredPosition, out Text valueText)
         {
             GameObject root = CreateUiObject(label + " Factor", parent);
             RectTransform rootRect = root.GetComponent<RectTransform>();
@@ -1957,7 +2086,7 @@ namespace LongSubmerged10x
 
             Slider slider = sliderObject.AddComponent<Slider>();
             slider.minValue = LongSubmergedRuntimeSettings.MinRuntimeFactor;
-            slider.maxValue = LongSubmergedRuntimeSettings.MaxRuntimeFactor;
+            slider.maxValue = maxValue;
             slider.wholeNumbers = true;
 
             GameObject background = CreateUiObject("Background", sliderObject.transform);
@@ -2494,7 +2623,7 @@ namespace LongSubmerged10x
             ApplyBatteryGainParameter(energy.Gain, factor);
             ApplyBatteryGainParameter(energy.GainSandboxTimeScale, factor);
 
-            if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor - 0.0001f)
+            if (factor >= LongSubmergedRuntimeSettings.BatteryMaxFactor - 0.0001f)
             {
                 int resourceId = RuntimeHelpers.GetHashCode(energy);
                 if (BatteryGainRuntimeLoggedResourceIds.Add(resourceId))
@@ -2507,7 +2636,7 @@ namespace LongSubmerged10x
             if (!LongSubmergedRuntimeSettings.MegaBattery)
                 return LongSubmergedRuntimeSettings.MinRuntimeFactor;
 
-            return LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.BatteryFactor);
+            return LongSubmergedRuntimeSettings.ClampBatteryFactor(LongSubmergedRuntimeSettings.BatteryFactor);
         }
 
         private static void ApplyBatteryGainParameter(Parameter parameter, float factor)
@@ -2520,7 +2649,7 @@ namespace LongSubmerged10x
 
             // DonJ : le slider Batterie regle les durees finies via la capacite.
             // Ici je coupe seulement le gain negatif au cran 100 pour eviter un double xN sur les autres valeurs.
-            if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor - 0.0001f && baseValue < 0f)
+            if (factor >= LongSubmergedRuntimeSettings.BatteryMaxFactor - 0.0001f && baseValue < 0f)
                 desiredValue = 0f;
 
             SetDelta(
@@ -2901,7 +3030,7 @@ namespace LongSubmerged10x
         private static float GetEffectiveTorpedoFactor()
         {
             return LongSubmergedRuntimeSettings.MegaTorpedoes
-                ? LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.TorpedoFactor)
+                ? LongSubmergedRuntimeSettings.ClampTorpedoFactor(LongSubmergedRuntimeSettings.TorpedoFactor)
                 : 1f;
         }
 
@@ -2910,12 +3039,12 @@ namespace LongSubmerged10x
             if (!LongSubmergedRuntimeSettings.MegaOxygen)
                 return 1f;
 
-            float sliderValue = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.OxygenFactor);
+            float sliderValue = LongSubmergedRuntimeSettings.ClampOxygenFactor(LongSubmergedRuntimeSettings.OxygenFactor);
             if (sliderValue <= LongSubmergedRuntimeSettings.MinRuntimeFactor)
                 return 1f;
 
             float normalized = (sliderValue - LongSubmergedRuntimeSettings.MinRuntimeFactor)
-                / (LongSubmergedRuntimeSettings.MaxRuntimeFactor - LongSubmergedRuntimeSettings.MinRuntimeFactor);
+                / (LongSubmergedRuntimeSettings.OxygenMaxFactor - LongSubmergedRuntimeSettings.MinRuntimeFactor);
 
             float maxFactor = Mathf.Max(1f, OxygenRuntimeMaxFactor);
             return 1f + normalized * (maxFactor - 1f);
@@ -2926,7 +3055,7 @@ namespace LongSubmerged10x
             if (!LongSubmergedRuntimeSettings.MegaBattery)
                 return BatteryCapacityVanillaRestoreScale;
 
-            float factor = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.BatteryFactor);
+            float factor = LongSubmergedRuntimeSettings.ClampBatteryFactor(LongSubmergedRuntimeSettings.BatteryFactor);
             return factor / BatteryCapacityDataFactor;
         }
 
@@ -2944,7 +3073,8 @@ namespace LongSubmerged10x
         private static bool IsInfiniteBatteryRuntimeActive()
         {
             return LongSubmergedRuntimeSettings.MegaBattery
-                && LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.BatteryFactor) >= LongSubmergedRuntimeSettings.MaxRuntimeFactor;
+                && LongSubmergedRuntimeSettings.ClampBatteryFactor(LongSubmergedRuntimeSettings.BatteryFactor)
+                    >= LongSubmergedRuntimeSettings.BatteryMaxFactor;
         }
 
         private static bool IsFinite(Vector3 value)
@@ -3377,6 +3507,8 @@ namespace LongSubmerged10x
         private const float FastSpeedFactor = __FAST_SPEED_FACTOR__;
         private const float FastSpeedFuelFactor = __FAST_SPEED_FUEL_FACTOR__;
         private const float PlayerSubmarineMaxSpeed = __PLAYER_SUBMARINE_MAX_SPEED__;
+        private const float LegacyDataSheetPlayerSubmarineMaxSpeed = __PLAYER_SUBMARINE_MAX_SPEED__;
+        private const float VanillaPlayerSubmarineMaxSpeedFallback = 32.8f;
         private const int FastForwardGearCount = __FAST_FORWARD_GEAR_COUNT__;
         private const string RuntimeVelocityModifierName = "LongSubmerged10x Player Speed Cap";
 
@@ -3422,6 +3554,7 @@ namespace LongSubmerged10x
                 PatchEngine(ship.DieselEngine, reason + ".DieselEngine");
                 PatchEngine(ship.ElectricEngine, reason + ".ElectricEngine");
                 PatchShipVelocityCap(ship, reason, true);
+                ApplyPropellerSpeedMultiplier(ship, reason, true);
             }
             catch (Exception ex)
             {
@@ -3436,7 +3569,10 @@ namespace LongSubmerged10x
 
             try
             {
+                // DonJ : appele regulierement par PlayerShip.Update/ValidateTargetVelocity.
+                // Les propulseurs sont une valeur runtime, donc il faut la remettre quand le joueur change de cran.
                 PatchShipVelocityCap(ship, reason, false);
+                ApplyPropellerSpeedMultiplier(ship, reason, false);
             }
             catch (Exception ex)
             {
@@ -3493,7 +3629,7 @@ namespace LongSubmerged10x
                 ApplyTopGearFloatArray(expectedVelocityPerGear, data.ExpectedVelocityPerGear, speedFactor);
                 ApplyTopGearFloatArray(expectedVelocityPerGearUnderwater, data.ExpectedVelocityPerGearUnderwater, speedFactor);
 
-                Debug.Log("[LongSubmerged10x] Fast speed patch applied after " + reason + ".");
+                Debug.Log("[LongSubmerged10x] Fast speed patch applied after " + reason + " with x" + speedFactor + ".");
             }
             catch (Exception ex)
             {
@@ -3569,11 +3705,12 @@ namespace LongSubmerged10x
             if (!ShipRuntimeData.TryGetValue(ship, out data))
             {
                 float originalVelocity = ship.Blueprint.Velocity;
-                Modifier modifier = null;
+                if (!IsFinite(originalVelocity) || originalVelocity <= 0f)
+                    return;
 
-                if (originalVelocity < PlayerSubmarineMaxSpeed)
-                    modifier = ship.Blueprint.Velocity.AddDeltaModifier(RuntimeVelocityModifierName, false);
-
+                // DonJ : on cree toujours le modifier, meme si le vieux XLSX a deja mis 45 km/h.
+                // Ca permet au slider x1 de revenir a la vitesse normale estimee au lieu de rester a 45.
+                Modifier modifier = ship.Blueprint.Velocity.AddDeltaModifier(RuntimeVelocityModifierName, false);
                 data = new ShipRuntimePatchData(originalVelocity, modifier);
                 ShipRuntimeData.Add(ship, data);
             }
@@ -3581,13 +3718,10 @@ namespace LongSubmerged10x
             if (data.VelocityModifier == null)
                 return;
 
+            float baseVelocity = GetRuntimeBaseVelocity(data.OriginalVelocity);
             float effectiveSpeedFactor = GetEffectiveFastSpeedFactor();
-            float desiredMaxSpeed = effectiveSpeedFactor <= 1.0001f
-                ? data.OriginalVelocity
-                : Math.Max(data.OriginalVelocity, PlayerSubmarineMaxSpeed * (effectiveSpeedFactor / FastSpeedFactor));
+            float desiredMaxSpeed = baseVelocity * effectiveSpeedFactor;
             float desiredDelta = desiredMaxSpeed - data.OriginalVelocity;
-            if (desiredDelta < 0f)
-                desiredDelta = 0f;
 
             if (Math.Abs(data.VelocityModifier.Value - desiredDelta) > 0.001f)
                 data.VelocityModifier.Value = desiredDelta;
@@ -3597,13 +3731,29 @@ namespace LongSubmerged10x
                 Debug.Log(
                     "[LongSubmerged10x] Player ship speed cap patched after "
                     + reason
-                    + ": "
-                    + data.OriginalVelocity
+                    + ": base "
+                    + baseVelocity
+                    + " km/h, x"
+                    + effectiveSpeedFactor
                     + " -> "
                     + desiredMaxSpeed
                     + " km/h."
                 );
             }
+        }
+
+        private static float GetRuntimeBaseVelocity(float originalVelocity)
+        {
+            if (!IsFinite(originalVelocity) || originalVelocity <= 0f)
+                return 1f;
+
+            // DonJ : compatibilite avec les builds 1.4.7 deja installes.
+            // Ces builds ecrivaient 45 km/h dans Entities.xlsx, ce qui empechait x1 d'etre vanilla.
+            // Les types joueur vanilla VIIC/IXC utilises par le mod sont a 32.8 km/h dans les Data Sheets.
+            if (Math.Abs(originalVelocity - LegacyDataSheetPlayerSubmarineMaxSpeed) <= 0.05f)
+                return VanillaPlayerSubmarineMaxSpeedFallback;
+
+            return originalVelocity;
         }
 
         private static void ApplyPropellerSpeedMultiplier(PlayerShip ship, string reason, bool verboseLog)
@@ -3674,7 +3824,7 @@ namespace LongSubmerged10x
             if (!LongSubmergedRuntimeSettings.SuperSpeed)
                 return 1f;
 
-            return LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.SpeedFactor);
+            return LongSubmergedRuntimeSettings.ClampSpeedFactor(LongSubmergedRuntimeSettings.SpeedFactor);
         }
 
         private static float GetEffectiveFastFuelFactor(float speedFactor)
@@ -3685,6 +3835,11 @@ namespace LongSubmerged10x
             float referenceSpeedFactor = Math.Max(1.0001f, FastSpeedFactor);
             float normalized = (speedFactor - 1f) / (referenceSpeedFactor - 1f);
             return Math.Max(1f, 1f + normalized * (FastSpeedFuelFactor - 1f));
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private static void WarnOnce(PlayerShipEngine engine, string message)
@@ -3806,9 +3961,13 @@ namespace LongSubmerged10x
         private static void Postfix(PlayerShip __instance)
         {
             // DonJ : je maintiens la batterie ici, apres la frame du sous-marin.
-            // Je ne patche plus Resource.UpdateAmount en 1.4.7, parce que cette methode sert aussi
+            // Je ne patche plus Resource.UpdateAmount depuis 1.4.7, parce que cette methode sert aussi
             // a Oxygen pendant la recharge de surface et doit rester 100 % vanilla.
             LongSubmergedRuntimeApplier.ApplyBatteryResource(__instance, "PlayerShip.Update");
+
+            // DonJ : la vitesse est un etat runtime du bateau et du cran moteur actif.
+            // On la remet ici pour que le slider F10 et les changements de cran soient visibles immediatement.
+            EngineFastSpeedPatcher.UpdatePlayerShipRuntime(__instance, "PlayerShip.Update");
         }
     }
 
@@ -4032,11 +4191,11 @@ namespace LongSubmerged10x
         "chargement de sauvegarde et changement d'equipage, plus vitesse rapide, "
         "plafond runtime, propulseurs, carburant rapide, menu F10 et toggles mega."
     )
-    report.note("Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut.")
+    report.note("Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum.")
     report.note("Mega Oxygene : profil par defaut calibre pour environ 90 jours.")
-    report.note("Menu F10 : sliders runtime 1-100 et bouton Par defaut.")
-    report.note("SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant.")
-    report.note("Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.")
+    report.note("Menu F10 : sliders runtime bornes par profil et bouton Par defaut.")
+    report.note("SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant.")
+    report.note("Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.")
 
 
 def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | None = None) -> None:
@@ -4049,16 +4208,16 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Discipline/fatigue sous l'eau : divisé par {args.discipline_factor:g}",
         f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
         f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g} dans les datasheets",
-        "- Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut",
+        "- Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum",
         "- EnergyUsage recharge/production batterie : vanilla",
         f"- Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}",
         f"- Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
-        "- Sliders F10 : Batterie, Oxygene, SuperVitesse et Torpilles de 1 a 100",
+        "- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10",
         "- Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie",
         "- Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours",
-        f"- Slider SuperVitesse : 1 = vanilla, {args.fast_speed_factor:g} = defaut actuel, 100 = extreme",
-        f"- Slider Torpilles : 1 = vanilla, {args.torpedo_damage_factor:g} = defaut actuel, 100 = extreme",
+        f"- Slider SuperVitesse : 1 = vanilla, {args.fast_speed_factor:g} = defaut actuel, 20 = maximum",
+        f"- Slider Torpilles : 1 = vanilla, {args.torpedo_damage_factor:g} = maximum",
         "- Bouton Par defaut : restaure les reglages du profil actuel",
         f"- Mega torpilles : {'oui' if args.mega_torpedoes else 'non'}",
         f"- Mega torpilles degats : x{args.torpedo_damage_factor:g}",
@@ -4087,7 +4246,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.",
         "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.",
         "- Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.",
-        "- Les sliders F10 sont persistants et s'appliquent directement en partie avec Reappliquer maintenant ou au changement de valeur.",
+        "- Les sliders F10 sont persistants et s'appliquent en partie avec un debounce ou Reappliquer maintenant.",
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
         "- Les crans rapides consomment plus de carburant pour garder une autonomie logique.",
         "- Les torpilles gardent leur vitesse/portee vanilla ; les degats, explosions, rates et le guidage verrouille sont geres en runtime.",
@@ -4108,11 +4267,11 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 f"- Lignes batterie : {report.counters.get('battery_capacity_rows', 0)}",
                 f"- Lignes EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}",
                 f"- Lignes EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}",
-                "- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut",
-                "- Menu F10 : sliders runtime 1-100 et bouton Par defaut",
-                "- SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant",
+                "- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum",
+                "- Menu F10 : sliders runtime bornes par profil et bouton Par defaut",
+                "- SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant",
                 f"- Lignes vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}",
-                "- Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee",
+                "- Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee",
             ]
         )
 
@@ -4224,7 +4383,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--oxygen-consumption-factor",
         type=float,
         default=DEFAULT_OXYGEN_CONSUMPTION_FACTOR,
-        help="Facteur runtime qui divise seulement le drain negatif de respiration. Defaut : 1800.",
+        help="Facteur runtime qui divise seulement le drain negatif de respiration. Defaut : 250.",
     )
 
     parser.add_argument(
@@ -4252,7 +4411,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--fast-speed-factor",
         type=float,
         default=DEFAULT_FAST_SPEED_FACTOR,
-        help="Multiplicateur vitesse/propulsion des derniers crans rapides de marche avant. Défaut : 3.5.",
+        help="Multiplicateur vitesse/propulsion des derniers crans rapides de marche avant. Defaut : 8.",
     )
 
     parser.add_argument(
@@ -4274,6 +4433,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=float,
         default=DEFAULT_PLAYER_SUBMARINE_MAX_SPEED,
         help="Vitesse max km/h des types de sous-marins joueur. Défaut : 45.",
+    )
+
+    parser.add_argument(
+        "--patch-player-submarine-speed-rows",
+        action="store_true",
+        default=DEFAULT_PATCH_PLAYER_SUBMARINE_SPEED_ROWS,
+        help="Compatibilite ancienne version : reecrit les lignes Types joueur a --player-submarine-max-speed. Desactive par defaut en 1.4.8.",
     )
 
     mega_torpedoes_group = parser.add_mutually_exclusive_group()
@@ -4566,12 +4732,12 @@ def main(argv: list[str]) -> int:
     print(f"  - Discipline/fatigue : /{args.discipline_factor:g}")
     print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
     print(f"  - EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g} dans les datasheets")
-    print("  - Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut")
+    print("  - Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum")
     print("  - EnergyUsage recharge/production batterie : vanilla")
     print(f"  - Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}")
     print(f"  - Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}")
     print(f"  - Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h")
-    print("  - Menu F10 : reglages Batterie, Oxygene, SuperVitesse et Torpilles de 1 a 100")
+    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10")
     print(f"  - Mega torpilles : {'OUI' if args.mega_torpedoes else 'NON'}")
     print(f"  - Torpilles degats : x{args.torpedo_damage_factor:g}")
     print(f"  - Torpilles effets visuels rayon explosion : x{args.torpedo_explosion_radius_factor:g}")
@@ -4585,10 +4751,10 @@ def main(argv: list[str]) -> int:
     print(f"  - Batterie : {report.counters.get('battery_capacity_rows', 0)}")
     print(f"  - EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}")
     print(f"  - EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}")
-    print("  - Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut")
+    print("  - Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum")
     print(f"  - Vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}")
-    print("  - SuperVitesse : runtime F10 reglable 1-100")
-    print("  - Mega torpilles : runtime F10 reglable 1-100, degats defaut x10 et effets visuels bornes x3")
+    print("  - SuperVitesse : runtime F10 reglable 1-20")
+    print("  - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10 et effets visuels bornes x3")
     print("  - Fiabilite torpilles : runtime F10")
 
     print("\nFichiers générés :")
