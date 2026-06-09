@@ -1,6 +1,6 @@
 {
   "name": "Long Submerged 10x+",
-  "version": "1.3.6",
+  "version": "1.3.8",
   "description": "Immersion longue : air de base x1800, conso air x1/1800, discipline x1/15, batterie x10, consommation electrique runtime 0 par defaut, fallback x0.1, recharge diesel vanilla, 2 crans rapides vitesse x3.5, carburant rapide x8, vitesse max joueur 45 km/h, menu runtime F10. sliders runtime 1-100 pour batterie, oxygene, SuperVitesse et torpilles. mega torpilles : degats x10, rayon explosion x10, intensite explosion x10, guidage cible verrouillee. fiabilite torpilles parfaite : DudChance et defaillances magnetiques a 0. cette version garde la ventilation vanilla par défaut.",
   "author": "VotreNomOuVotreEquipe",
   "minGameVersion": "2026.1",
@@ -9,7 +9,7 @@
     "2026.1 Patch 20",
     "2026.1"
   ],
-  "assemblyName": "LongSubmerged10xPatch_1_3_6",
+  "assemblyName": "LongSubmerged10xPatch_1_3_8",
   "permissions": [
     "Reflection"
   ],

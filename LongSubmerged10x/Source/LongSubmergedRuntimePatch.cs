@@ -15,7 +15,7 @@ namespace LongSubmerged10x
 {
     public sealed class LongSubmergedRuntimePatchMod : IUserMod
     {
-        private const string RuntimeVersion = "1.3.6";
+        private const string RuntimeVersion = "1.3.8";
 
         public string Name
         {
@@ -43,7 +43,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 2;
+        private const int RuntimeSettingsVersion = 4;
         public const float MinRuntimeFactor = 1f;
         public const float MaxRuntimeFactor = 100f;
         private const bool DefaultMegaBattery = true;
@@ -628,9 +628,13 @@ namespace LongSubmerged10x
         private const float TorpedoGuidanceMaximumDetonationDistance = 80f;
         private const float TorpedoGuidanceDetonationRadiusRatio = 0.75f;
         private const string RuntimeScaleModifierName = "LongSubmerged10x Runtime Toggle";
+        private const string RuntimeBatteryGainModifierName = "LongSubmerged10x Battery Gain Runtime";
 
         private static readonly FieldInfo OxygenBreathModifierField =
             AccessTools.Field(typeof(PlayerShip), "oxygenBreathModifier");
+
+        private static readonly FieldInfo ResourcePlayerShipField =
+            AccessTools.Field(typeof(Resource), "playerShip");
 
         private static readonly FieldInfo AirCompressorEnergyModifierField =
             AccessTools.Field(typeof(AirCompressor), "energyModifier");
@@ -671,10 +675,15 @@ namespace LongSubmerged10x
         private static readonly ConditionalWeakTable<Parameter, ParameterScalePatchData> ParameterScaleData =
             new ConditionalWeakTable<Parameter, ParameterScalePatchData>();
 
+        private static readonly ConditionalWeakTable<Parameter, ParameterDeltaPatchData> BatteryGainDeltaData =
+            new ConditionalWeakTable<Parameter, ParameterDeltaPatchData>();
+
         private static readonly ConditionalWeakTable<Torpedo, TorpedoGuidancePatchData> TorpedoGuidanceData =
             new ConditionalWeakTable<Torpedo, TorpedoGuidancePatchData>();
 
         private static readonly HashSet<int> InfiniteBatteryLoggedShipIds = new HashSet<int>();
+
+        private static readonly HashSet<int> BatteryGainRuntimeLoggedResourceIds = new HashSet<int>();
 
         public static void ApplyAll(string reason)
         {
@@ -736,6 +745,7 @@ namespace LongSubmerged10x
             if (ship == null)
                 return;
 
+            ApplyBatteryGainModifiers(ship.Energy, reason);
             MaintainInfiniteBatteryCharge(ship, reason);
         }
 
@@ -744,22 +754,130 @@ namespace LongSubmerged10x
             if (ship == null || !IsInfiniteBatteryRuntimeActive())
                 return;
 
-            Resource energy = ship.Energy;
-            if (energy == null || energy.Capacity == null)
-                return;
+            FillBatteryToCapacity(ship.Energy, reason);
+        }
 
-            double capacity = energy.Capacity.Value;
-            if (double.IsNaN(capacity) || double.IsInfinity(capacity) || capacity <= 0.0)
-                return;
-
-            if (energy.Amount < capacity - 0.0001)
+        public static bool TryUpdateBatteryResourceAmount(Resource resource, double time, double sandboxTime, string reason)
+        {
+            try
             {
-                // La je garde la batterie au maximum quand le slider est a 100 : c'est le mode batterie nucleaire.
-                energy.SetAmountQuiet(capacity);
+                if (!IsPlayerShipEnergyResource(resource))
+                    return false;
 
-                if (InfiniteBatteryLoggedShipIds.Add(ship.GetInstanceID()))
+                ApplyBatteryGainModifiers(resource, reason);
+
+                if (!IsInfiniteBatteryRuntimeActive())
+                    return false;
+
+                FillBatteryToCapacity(resource, reason);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                return false;
+            }
+        }
+
+        private static void FillBatteryToCapacity(Resource energy, string reason)
+        {
+            if (energy == null)
+                return;
+
+            double capacity = GetResourceCapacity(energy);
+            if (!IsUsableResourceValue(capacity) || capacity <= 0.0)
+                return;
+
+            if (Math.Abs(energy.Amount - capacity) > 0.0001)
+            {
+                // La je garde la batterie au maximum avec le setter Amount pour forcer aussi le refresh UI.
+                energy.Amount = capacity;
+
+                int resourceId = RuntimeHelpers.GetHashCode(energy);
+                if (InfiniteBatteryLoggedShipIds.Add(resourceId))
                     Debug.Log("[LongSubmerged10x] Mega Batterie infinite hold active after " + reason + ".");
             }
+        }
+
+        private static void ApplyBatteryGainModifiers(Resource energy, string reason)
+        {
+            if (energy == null)
+                return;
+
+            float factor = GetEffectiveBatteryGainFactor();
+            ApplyBatteryGainParameter(energy.Gain, factor);
+            ApplyBatteryGainParameter(energy.GainSandboxTimeScale, factor);
+
+            if (factor > LongSubmergedRuntimeSettings.MinRuntimeFactor + 0.0001f)
+            {
+                int resourceId = RuntimeHelpers.GetHashCode(energy);
+                if (BatteryGainRuntimeLoggedResourceIds.Add(resourceId))
+                {
+                    string factorText = factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor ? "inf" : "x" + factor.ToString("0");
+                    Debug.Log("[LongSubmerged10x] Mega Batterie gain runtime active " + factorText + " after " + reason + ".");
+                }
+            }
+        }
+
+        private static float GetEffectiveBatteryGainFactor()
+        {
+            if (!LongSubmergedRuntimeSettings.MegaBattery)
+                return LongSubmergedRuntimeSettings.MinRuntimeFactor;
+
+            return LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.BatteryFactor);
+        }
+
+        private static void ApplyBatteryGainParameter(Parameter parameter, float factor)
+        {
+            if (parameter == null)
+                return;
+
+            ParameterDeltaPatchData data;
+            if (!BatteryGainDeltaData.TryGetValue(parameter, out data))
+            {
+                data = new ParameterDeltaPatchData(parameter.AddDeltaModifier(RuntimeBatteryGainModifierName, false));
+                BatteryGainDeltaData.Add(parameter, data);
+            }
+
+            if (data.DeltaModifier == null)
+                return;
+
+            float baseValue = parameter.GetValueExcludingModifier(RuntimeBatteryGainModifierName);
+            float desiredValue = baseValue;
+            if (factor > LongSubmergedRuntimeSettings.MinRuntimeFactor + 0.0001f && baseValue < 0f)
+                desiredValue = factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor ? 0f : baseValue / factor;
+
+            float delta = desiredValue - baseValue;
+            if (Math.Abs(data.DeltaModifier.Value - delta) > 0.000001f)
+                data.DeltaModifier.Value = delta;
+        }
+
+        private static bool IsPlayerShipEnergyResource(Resource resource)
+        {
+            if (resource == null)
+                return false;
+
+            PlayerShip owner = null;
+            if (ResourcePlayerShipField != null)
+                owner = ResourcePlayerShipField.GetValue(resource) as PlayerShip;
+
+            if (owner == null)
+                owner = UnityEngine.Object.FindObjectOfType<PlayerShip>();
+
+            return owner != null && object.ReferenceEquals(owner.Energy, resource);
+        }
+
+        private static double GetResourceCapacity(Resource resource)
+        {
+            if (resource == null || resource.Capacity == null)
+                return double.NaN;
+
+            return resource.Capacity.Value;
+        }
+
+        private static bool IsUsableResourceValue(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         public static void RestoreVanillaOxygenIfNeeded(PlayerShip ship)
@@ -1057,15 +1175,9 @@ namespace LongSubmerged10x
 
         private static float GetEffectiveBatteryEnergyUsageScale()
         {
-            if (!LongSubmergedRuntimeSettings.MegaBattery)
-                return EnergyUsageVanillaRestoreScale;
-
-            float factor = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.BatteryFactor);
-            if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor)
-                return 0f;
-
-            float finalUsageFactor = 1f / factor;
-            return finalUsageFactor / EnergyUsageDataFactor;
+            // La je restaure seulement le fallback XLSX x0.1 vers une base vanilla.
+            // Le vrai slider Batterie est applique dans Resource.UpdateAmount pour couvrir tous les consommateurs.
+            return EnergyUsageVanillaRestoreScale;
         }
 
         private static bool IsInfiniteBatteryRuntimeActive()
@@ -1215,6 +1327,16 @@ namespace LongSubmerged10x
         public ParameterScalePatchData(Modifier scaleModifier)
         {
             ScaleModifier = scaleModifier;
+        }
+    }
+
+    internal sealed class ParameterDeltaPatchData
+    {
+        public readonly Modifier DeltaModifier;
+
+        public ParameterDeltaPatchData(Modifier deltaModifier)
+        {
+            DeltaModifier = deltaModifier;
         }
     }
 
@@ -1683,6 +1805,15 @@ namespace LongSubmerged10x
         private static void Postfix(PlayerShip __instance)
         {
             LongSubmergedRuntimeApplier.MaintainInfiniteBatteryCharge(__instance, "PlayerShip.Update");
+        }
+    }
+
+    [HarmonyPatch(typeof(Resource), "UpdateAmount")]
+    internal static class ResourceUpdateAmountBatteryPatch
+    {
+        private static bool Prefix(Resource __instance, double __0, double __1)
+        {
+            return !LongSubmergedRuntimeApplier.TryUpdateBatteryResourceAmount(__instance, __0, __1, "Resource.UpdateAmount");
         }
     }
 
