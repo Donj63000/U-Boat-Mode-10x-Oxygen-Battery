@@ -16,9 +16,11 @@ using UnityEngine.UI;
 
 namespace LongSubmerged10x
 {
+    // DonJ : point d'entree du runtime UBOAT. Cette classe ne porte pas la logique gameplay elle-meme ;
+    // elle charge les reglages, cree le menu F10, installe les hooks Harmony et lance une premiere passe runtime.
     public sealed class LongSubmergedRuntimePatchMod : IUserMod
     {
-        private const string RuntimeVersion = "1.4.1";
+        private const string RuntimeVersion = "1.4.2";
 
         public string Name
         {
@@ -29,8 +31,8 @@ namespace LongSubmerged10x
         {
             try
             {
-                // La je charge les reglages et le menu avant Harmony.
-                // Comme ca le garde-fou batterie tourne meme si un patch Harmony ne passe pas.
+                // DonJ : je charge les reglages PlayerPrefs et je cree le menu avant Harmony.
+                // Si un hook Harmony casse apres une mise a jour UBOAT, le menu et le heartbeat batterie existent quand meme.
                 LongSubmergedRuntimeSettings.Load();
                 LongSubmergedMenuController.Ensure();
             }
@@ -39,18 +41,14 @@ namespace LongSubmerged10x
                 Debug.LogException(ex);
             }
 
-            try
-            {
-                new Harmony("donj.longsubmerged10x.airfix").PatchAll();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("[LongSubmerged10x] Harmony PatchAll a echoue, mais le runtime direct batterie continue: " + ex.GetType().Name + ": " + ex.Message);
-                Debug.LogException(ex);
-            }
+            // DonJ : je patche chaque hook un par un. Un patch rate ne doit jamais empecher la batterie,
+            // l'oxygene, les torpilles ou le menu de continuer a fonctionner avec les autres hooks valides.
+            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.airfix"));
 
             try
             {
+                // DonJ : premiere application directe. Elle couvre le cas ou des objets existent deja
+                // avant que leurs hooks Awake/Start aient pu etre interceptes.
                 LongSubmergedRuntimeApplier.ApplyAll("mod loaded");
             }
             catch (Exception ex)
@@ -62,6 +60,8 @@ namespace LongSubmerged10x
         }
     }
 
+    // DonJ : liste centralisee des hooks Harmony du mod. Garder cette liste explicite rend le chargement
+    // robuste : on voit exactement quelles zones du jeu sont touchees et on peut ignorer un hook incompatible.
     internal static class LongSubmergedRuntimePatcher
     {
         private static readonly Type[] PatchTypes = new Type[]
@@ -109,13 +109,15 @@ namespace LongSubmerged10x
                 }
                 catch (Exception ex)
                 {
-                    // Une seule methode renomme dans UBOAT ne doit plus neutraliser toute la batterie infinie.
+                    // DonJ : une seule methode renommee dans UBOAT ne doit plus neutraliser tout le mod.
                     Debug.LogWarning("[LongSubmerged10x] Harmony patch skipped: " + patchType.Name + " -> " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
         }
     }
 
+    // DonJ : etat runtime sauvegarde par le menu F10. Les sliders restent entre 1 et 100 :
+    // 1 = comportement proche vanilla, 100 = maximum du mod, avec batterie infinie au cran 100.
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
@@ -144,6 +146,8 @@ namespace LongSubmerged10x
         {
             if (PlayerPrefs.GetInt(PrefPrefix + "RuntimeSettingsVersion", 0) < RuntimeSettingsVersion)
             {
+                // DonJ : quand je change le modele de reglages, je force les nouveaux defauts propres
+                // pour eviter qu'une vieille sauvegarde PlayerPrefs garde un profil casse.
                 ResetToDefaults();
                 Save();
                 Debug.Log("[LongSubmerged10x] Runtime settings migrated to defaults v" + RuntimeSettingsVersion + ".");
@@ -205,6 +209,8 @@ namespace LongSubmerged10x
         }
     }
 
+    // DonJ : vrai menu Unity UI en ScreenSpaceOverlay. Je n'utilise plus l'ancien rendu IMGUI,
+    // car UBOAT pouvait figer ou masquer ce rendu. F10 ouvre/ferme, Escape ferme, et les changements s'appliquent en jeu.
     internal sealed class LongSubmergedMenuController : MonoBehaviour
     {
         private const KeyCode MenuKey = KeyCode.F10;
@@ -284,6 +290,8 @@ namespace LongSubmerged10x
             if (!LongSubmergedRuntimeSettings.MegaBattery)
                 return;
 
+            // DonJ : le heartbeat tourne meme menu ferme. UBOAT peut recalculer la batterie apres chargement,
+            // changement d'equipement ou equipage ; je reapplique donc le mode nucleaire regulierement.
             float now = Time.unscaledTime;
             if (now < nextBatteryMaintenanceTime)
                 return;
@@ -299,6 +307,7 @@ namespace LongSubmerged10x
 
             try
             {
+                // DonJ : Canvas overlay avec ordre tres haut pour passer au-dessus de l'UI du jeu.
                 Canvas canvas = gameObject.GetComponent<Canvas>();
                 if (canvas == null)
                     canvas = gameObject.AddComponent<Canvas>();
@@ -332,6 +341,8 @@ namespace LongSubmerged10x
 
         private void BuildPanel()
         {
+            // DonJ : panneau compact de test runtime. Tous les controles modifient les valeurs sauvegardees
+            // et rappellent ApplyAll pour voir le resultat directement dans la partie.
             panelObject = CreateUiObject("LongSubmerged10x Panel", transform);
             Image panelImage = panelObject.AddComponent<Image>();
             panelImage.color = new Color(0.04f, 0.05f, 0.06f, 0.96f);
@@ -405,6 +416,8 @@ namespace LongSubmerged10x
             if (suppressToggleEvents)
                 return;
 
+            // DonJ : un changement UI met a jour l'etat runtime, sauvegarde PlayerPrefs,
+            // puis reapplique le mod sur les objets deja charges dans la scene.
             LongSubmergedRuntimeSettings.MegaBattery = megaBatteryToggle != null && megaBatteryToggle.isOn;
             LongSubmergedRuntimeSettings.MegaOxygen = megaOxygenToggle != null && megaOxygenToggle.isOn;
             LongSubmergedRuntimeSettings.SuperSpeed = superSpeedToggle != null && superSpeedToggle.isOn;
@@ -704,8 +717,11 @@ namespace LongSubmerged10x
         }
     }
 
+    // DonJ : coeur gameplay du mod. Cette classe applique les valeurs runtime sans reecrire les fichiers XLSX :
+    // elle pose des modifiers sur les Parametres du jeu, garde la batterie pleine et ajuste torpilles/vitesse/oxygene.
     internal static class LongSubmergedRuntimeApplier
     {
+        // DonJ : constantes du profil livre. Le joueur peut ensuite ajuster en F10 sans regenerer le mod.
         private const float OxygenVanillaRestoreFactor = 1800f;
         private const float BatteryCapacityDataFactor = 10f;
         private const float EnergyUsageDataFactor = 0.1f;
@@ -776,6 +792,8 @@ namespace LongSubmerged10x
         private static readonly ConditionalWeakTable<Parameter, ParameterScalePatchData> ParameterScaleData =
             new ConditionalWeakTable<Parameter, ParameterScalePatchData>();
 
+        // DonJ : ConditionalWeakTable evite de garder en memoire des objets Unity detruits.
+        // Chaque Parameter recoit un seul modifier DonJ, ensuite je change juste sa valeur.
         private static readonly ConditionalWeakTable<Parameter, ParameterDeltaPatchData> BatteryGainDeltaData =
             new ConditionalWeakTable<Parameter, ParameterDeltaPatchData>();
 
@@ -806,6 +824,8 @@ namespace LongSubmerged10x
         {
             try
             {
+                // DonJ : passe globale volontairement defensive. Elle resynchronise le menu,
+                // le PlayerShip, les consommateurs batterie et toutes les torpilles visibles.
                 LongSubmergedMenuController.Ensure();
                 ApplyPlayerShip(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason);
                 ApplyBatteryConsumers(reason);
@@ -826,6 +846,8 @@ namespace LongSubmerged10x
         {
             try
             {
+                // DonJ : tick leger appele toutes les 0.20s. Il ne rescane pas toute la scene,
+                // il remet seulement la ressource batterie du sous-marin dans l'etat attendu.
                 ApplyBatteryResource(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason);
             }
             catch (Exception ex)
@@ -838,6 +860,8 @@ namespace LongSubmerged10x
         {
             try
             {
+                // DonJ : UBOAT disperse les consommations electriques entre plusieurs composants.
+                // Je traite les types connus puis je lance un scan generique pour les champs renommes ou caches.
                 foreach (AccumulatorsUpgrade item in UnityEngine.Object.FindObjectsOfType<AccumulatorsUpgrade>())
                     ApplyBatteryObject(item, reason + ".AccumulatorsUpgrade");
 
@@ -907,7 +931,7 @@ namespace LongSubmerged10x
 
                 ApplyBatteryRuntimeToResource(resource, reason);
 
-                // En mode infini on bloque l'UpdateAmount vanilla : la ressource reste pleine.
+                // DonJ : en mode infini je bloque l'UpdateAmount vanilla ; le jeu ne peut plus vider la ressource.
                 return IsInfiniteBatteryRuntimeActive();
             }
             catch (Exception ex)
@@ -922,6 +946,8 @@ namespace LongSubmerged10x
             if (energy == null)
                 return;
 
+            // DonJ : pipeline batterie unique. Capacite nucleaire, gain/drain et remplissage passent ici,
+            // ce qui evite d'avoir plusieurs comportements batterie qui divergent.
             ApplyNuclearBatteryCapacityOverride(energy, reason);
             ApplyBatteryGainModifiers(energy, reason);
 
@@ -936,6 +962,8 @@ namespace LongSubmerged10x
             if (energy == null || energy.Capacity == null)
                 return;
 
+            // DonJ : le cran Batterie 100 ne fait pas juste "moins consommer" ;
+            // il ajoute une capacite enorme pour que l'UI et le gameplay voient une batterie nucleaire.
             float baseCapacity = energy.Capacity.GetValueExcludingModifier(RuntimeNuclearBatteryCapacityModifierName);
             float targetCapacity = baseCapacity;
 
@@ -1056,7 +1084,7 @@ namespace LongSubmerged10x
 
             if (Math.Abs(energy.Amount - capacity) > 0.0001)
             {
-                // La je garde la batterie au maximum avec le setter Amount pour forcer aussi le refresh UI.
+                // DonJ : je garde la batterie au maximum avec le setter Amount pour forcer aussi le refresh UI.
                 energy.Amount = capacity;
 
                 int resourceId = RuntimeHelpers.GetHashCode(energy);
@@ -1098,8 +1126,8 @@ namespace LongSubmerged10x
             float baseValue = parameter.GetValueExcludingModifier(RuntimeBatteryGainModifierName);
             float desiredValue = baseValue;
 
-            // Le slider Batterie regle deja la duree via la capacite effective.
-            // Ici on ne touche au gain global que pour le cran 100/infini, afin d'eviter un double xN.
+            // DonJ : le slider Batterie regle les durees finies via la capacite.
+            // Ici je coupe seulement le gain negatif au cran 100 pour eviter un double xN sur les autres valeurs.
             if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor - 0.0001f && baseValue < 0f)
                 desiredValue = 0f;
 
@@ -1147,8 +1175,10 @@ namespace LongSubmerged10x
             if (owner == null)
                 owner = UnityEngine.Object.FindObjectOfType<PlayerShip>();
 
-            if (owner != null && object.ReferenceEquals(owner.Energy, resource))
-                return true;
+            // DonJ : securite anti-faux-positif. Si je trouve le PlayerShip, je n'accepte que sa vraie ressource Energy.
+            // Le fallback par nom sert seulement quand UBOAT ne donne pas encore le lien owner.
+            if (owner != null)
+                return object.ReferenceEquals(owner.Energy, resource);
 
             return IsEnergyResourceName(resource.Name);
         }
@@ -1183,7 +1213,8 @@ namespace LongSubmerged10x
             if (oxygenModifier == null)
                 return;
 
-            // La je compense le XLSX pour que le slider 1 soit vanilla et 100 garde mon profil environ 90 jours.
+            // DonJ : je compense le XLSX pour que le slider 1 soit vanilla
+            // et que le slider 100 garde le profil demande autour de 90 jours.
             oxygenModifier.Value *= OxygenVanillaRestoreFactor / GetEffectiveOxygenDataFactor();
         }
 
@@ -1227,6 +1258,8 @@ namespace LongSubmerged10x
 
             if (torpedo.Parameters != null)
             {
+                // DonJ : les torpilles sont reglees au runtime. A 1 elles redeviennent vanilla ;
+                // a 10 elles utilisent le profil mega par defaut ; a 100 elles deviennent extremes.
                 float torpedoFactor = GetEffectiveTorpedoFactor();
                 float damageScale = torpedoFactor;
                 float crewDamageScale = torpedoFactor;
@@ -1272,7 +1305,8 @@ namespace LongSubmerged10x
             if (!IsFinite(targetPoint))
                 return;
 
-            // La je transforme le tir verrouille en visee cartésienne dynamique pour que l'angle soit toujours bon.
+            // DonJ : je transforme le tir verrouille en visee cartesienne dynamique.
+            // L'objectif est qu'une torpille tiree sur une cible correctement verrouillee corrige son angle pendant le vol.
             torpedo.GyroAngle = float.NaN;
             torpedo.TargetPosition = targetPoint;
             torpedo.TargetPositionForReports = targetPoint;
@@ -1425,6 +1459,8 @@ namespace LongSubmerged10x
         {
             Parameter damageRadius = torpedo.Parameters == null ? null : GetParameter(torpedo.Parameters, "DamageRadius");
             float scaledDamageRadius = damageRadius == null ? 0f : damageRadius.Value * GetEffectiveTorpedoFactor();
+            // DonJ : detonateur de secours proche cible. Il reste borne pour ne pas exploser trop loin,
+            // mais suit le rayon mega afin de fiabiliser les impacts verrouilles.
             return Mathf.Clamp(
                 scaledDamageRadius * TorpedoGuidanceDetonationRadiusRatio,
                 TorpedoGuidanceMinimumDetonationDistance,
@@ -1469,9 +1505,9 @@ namespace LongSubmerged10x
 
         private static float GetEffectiveBatteryEnergyUsageScale()
         {
-            // Pour les valeurs finies, la duree est pilotee par la capacite :
-            // 1 = vanilla, 4 = x4, 99 = x99. On restaure donc le fallback XLSX x0.1 vers vanilla.
-            // Au cran 100, on coupe explicitement les consommateurs electriques pour que l'UI et le jeu voient l'infini.
+            // DonJ : pour les valeurs finies, la duree est pilotee par la capacite :
+            // 1 = vanilla, 4 = x4, 99 = x99. Je restaure donc le fallback XLSX x0.1 vers vanilla.
+            // Au cran 100, je coupe explicitement les consommateurs electriques pour que l'UI et le jeu voient l'infini.
             if (IsInfiniteBatteryRuntimeActive())
                 return 0f;
 
@@ -1522,8 +1558,8 @@ namespace LongSubmerged10x
             if (parameter == null)
                 return;
 
-            // Ne pas tester parameter.Value ici : en mode infini notre scale vaut 0.
-            // Quand le joueur redescend le slider, il faut pouvoir restaurer le drain vanilla.
+            // DonJ : ne pas tester parameter.Value ici : en mode infini mon scale vaut 0.
+            // Quand le joueur redescend le slider, je dois pouvoir restaurer le drain vanilla.
             float baseValue = parameter.GetValueExcludingModifier(RuntimeScaleModifierName);
             if (baseValue <= 0f)
                 return;
@@ -1581,6 +1617,8 @@ namespace LongSubmerged10x
 
         private static void ApplyGenericBatteryConsumers(string reason)
         {
+            // DonJ : filet de securite. Si UBOAT renomme un composant electrique,
+            // je cherche quand meme les champs Parameter nommes EnergyUsage dans tous les MonoBehaviour.
             MonoBehaviour[] behaviours = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
             foreach (MonoBehaviour behaviour in behaviours)
             {
@@ -1820,6 +1858,8 @@ namespace LongSubmerged10x
         public Vector3 OriginalTargetPositionForReports;
     }
 
+    // DonJ : recalcul de l'oxygene apres chargement/equipage. UBOAT garde parfois un modifier calcule
+    // avant les Data Sheets du mod ; je force donc le recalcul puis j'applique le facteur F10.
     internal static class OxygenBreathRecalculator
     {
         private static readonly MethodInfo ValidateOxygenBreathModifierMethod =
@@ -1832,7 +1872,7 @@ namespace LongSubmerged10x
 
             try
             {
-                // La je force le jeu a reprendre ma valeur Oxygen Consumption Per Character du fichier General.xlsx.
+                // DonJ : je force le jeu a reprendre ma valeur Oxygen Consumption Per Character du fichier General.xlsx.
                 ValidateOxygenBreathModifierMethod.Invoke(ship, null);
                 LongSubmergedRuntimeApplier.RestoreVanillaOxygenIfNeeded(ship);
                 Debug.Log("[LongSubmerged10x] Oxygen breath modifier recalculated after " + reason + ".");
@@ -1844,6 +1884,8 @@ namespace LongSubmerged10x
         }
     }
 
+    // DonJ : SuperVitesse ne change pas toutes les allures. Je booste seulement les deux derniers crans avant,
+    // le plafond du sous-marin joueur et le multiplicateur de propulseur quand ces crans rapides sont actifs.
     internal static class EngineFastSpeedPatcher
     {
         private const float FastSpeedFactor = 3.5f;
@@ -1925,6 +1967,8 @@ namespace LongSubmerged10x
 
             try
             {
+                // DonJ : les champs moteur sont prives dans UBOAT, donc je passe par reflection.
+                // Si une version du jeu renomme un champ, je log une seule alerte et je laisse le moteur vanilla.
                 if (!FieldsReady())
                 {
                     WarnOnce(engine, "champs moteur introuvables, patch vitesse ignore.");
@@ -1958,6 +2002,8 @@ namespace LongSubmerged10x
                 float speedFactor = GetEffectiveFastSpeedFactor();
                 float fuelFactor = GetEffectiveFastFuelFactor(speedFactor);
 
+                // DonJ : je garde une copie des valeurs originales, puis je recalcule depuis ces bases.
+                // Comme ca le slider F10 peut monter/descendre sans empiler les multiplicateurs.
                 ApplyTopGearBasePower(forwardPresets, data.ForwardBasePower, speedFactor);
                 ApplyTopGearFuelConsumption(forwardPresets, data.ForwardFuelConsumption, fuelFactor);
                 ApplyTopGearFloatArray(expectedVelocityPerGear, data.ExpectedVelocityPerGear, speedFactor);
@@ -2250,6 +2296,8 @@ namespace LongSubmerged10x
         }
     }
 
+    // DonJ : hooks Harmony courts et delegues. Chaque hook appelle une methode robuste du runtime,
+    // ce qui limite le risque de casser UBOAT si un objet arrive partiellement initialise.
     [HarmonyPatch(typeof(PlayerShip), "Awake")]
     internal static class PlayerShipAwakePatch
     {
