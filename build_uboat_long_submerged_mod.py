@@ -9,7 +9,7 @@ But de cette version :
 - Garder la batterie longue durée qui fonctionne déjà.
 - Corriger l'air / "qualité de l'air" pour viser environ 90 jours.
 - Ne plus casser la ventilation : la ligne Ventilation reste vanilla par défaut.
-- SurfaceSafe 1.4.6 : ne plus modifier l'oxygène ni la capacité d'air dans les Data Sheets.
+- SurfaceSafe 1.4.7 : ne plus modifier l'oxygène ni la capacité d'air dans les Data Sheets.
 - Appliquer l'oxygène long uniquement au runtime sur le drain négatif de respiration.
 
 Prérequis :
@@ -47,9 +47,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.4.6"
+MOD_VERSION = "1.4.7"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_6"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_7"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
@@ -1050,7 +1050,7 @@ def patch_parameter_cell(
     # Torpilles : je les applique maintenant en runtime pour pouvoir les couper proprement dans le menu.
     # Les XLSX gardent les valeurs vanilla, le toggle Mega Torpilles ajoute/retire les multiplicateurs en jeu.
 
-    # SurfaceSafe 1.4.6 :
+    # SurfaceSafe 1.4.7 :
     # Ne plus modifier les capacites Air/Oxygen/Atmosphere dans les Data Sheets.
     # La transition surface recharge l'air avec les valeurs vanilla ; l'oxygene long est applique uniquement au runtime.
 
@@ -1103,7 +1103,7 @@ def patch_simple_air_capacity_cells(
     Patch les cellules numériques d'une ligne qui représente clairement une réserve/capacité d'air,
     même si la ligne n'utilise pas de colonne Parameters.
     """
-    # SurfaceSafe 1.4.6 :
+    # SurfaceSafe 1.4.7 :
     # Désactivé volontairement. Modifier directement les réserves/capacités d'air peut casser
     # la transition immersion -> surface quand UBOAT recharge l'atmosphère.
     return {}, [], {}
@@ -1383,7 +1383,7 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
                 if args.perfect_torpedo_reliability
                 else "fiabilite torpilles vanilla. "
             ) +
-            "cette version garde la ventilation vanilla par défaut."
+            "cette version garde AirCompressor et Ventilation vanilla pendant la remontée surface."
         ),
         "author": MOD_AUTHOR,
         "minGameVersion": "2026.1",
@@ -1486,11 +1486,8 @@ namespace LongSubmerged10x
             typeof(AccumulatorsUpgradeStartPatch),
             typeof(DivingPlanesStationAwakePatch),
             typeof(DivingPlanesStationUpdateModifiersPatch),
-            typeof(AirCompressorOnEnablePatch),
-            typeof(AirCompressorEnergyUsageChangedPatch),
             typeof(GyrocompassApplyModifiersPatch),
             typeof(TrimPumpOnEnablePatch),
-            typeof(VentilationOnEnablePatch),
             typeof(StoredTorpedoStartPatch),
             typeof(StoredTorpedoApplyWarmUpModifierPatch),
             typeof(TorpedoAwakePatch),
@@ -2216,6 +2213,12 @@ namespace LongSubmerged10x
 
         private static readonly HashSet<int> BatteryTooltipRuntimeLoggedResourceIds = new HashSet<int>();
 
+        // SurfaceSafe 1.4.7 :
+        // Les callbacks de certains équipements peuvent être relancés pendant que l'on ajoute/modifie
+        // leurs modifiers. Sans garde, un EnergyUsage_Changed déclenché par notre propre SetScale peut
+        // entrer en récursion pendant la transition immersion -> surface.
+        private static readonly HashSet<int> BatteryObjectApplicationGuardIds = new HashSet<int>();
+
         private static readonly Dictionary<Type, FieldInfo[]> GenericEnergyUsageFieldCache =
             new Dictionary<Type, FieldInfo[]>();
 
@@ -2276,17 +2279,16 @@ namespace LongSubmerged10x
                 foreach (DivingPlanesStation item in UnityEngine.Object.FindObjectsOfType<DivingPlanesStation>())
                     ApplyBatteryObject(item, reason + ".DivingPlanesStation");
 
-                foreach (AirCompressor item in UnityEngine.Object.FindObjectsOfType<AirCompressor>())
-                    ApplyBatteryObject(item, reason + ".AirCompressor");
-
+                // SurfaceSafe 1.4.7 :
+                // On ne touche plus AirCompressor ni Ventilation. Ces composants appartiennent au circuit
+                // air/recharge de surface ; les modifier au moment où le bateau reprend l'air peut provoquer
+                // une boucle EnergyUsage_Changed / modifier UI. La batterie infinie reste assurée par
+                // ApplyBatteryResource(PlayerShip.Energy), donc il n'y a pas besoin de neutraliser leur coût.
                 foreach (Gyrocompass item in UnityEngine.Object.FindObjectsOfType<Gyrocompass>())
                     ApplyBatteryObject(item, reason + ".Gyrocompass");
 
                 foreach (TrimPump item in UnityEngine.Object.FindObjectsOfType<TrimPump>())
                     ApplyBatteryObject(item, reason + ".TrimPump");
-
-                foreach (Ventilation item in UnityEngine.Object.FindObjectsOfType<Ventilation>())
-                    ApplyBatteryObject(item, reason + ".Ventilation");
 
                 foreach (Equipment item in UnityEngine.Object.FindObjectsOfType<Equipment>())
                     ApplyBatteryEquipment(item, reason + ".Equipment");
@@ -2611,7 +2613,7 @@ namespace LongSubmerged10x
 
                 float desiredValue = baseValue;
 
-                // SurfaceSafe 1.4.6 :
+                // SurfaceSafe 1.4.7 :
                 // On ne touche qu'au drain negatif de respiration.
                 // Si UBOAT met une valeur nulle ou positive pendant la surface/recharge,
                 // on la laisse vanilla pour ne pas casser la transition surface.
@@ -2629,22 +2631,32 @@ namespace LongSubmerged10x
 
         public static void ApplyBatteryObject(object target, string reason)
         {
-            if (target == null)
+            if (target == null || IsSurfaceAirRuntimeObject(target))
                 return;
 
-            Equipment equipment = target as Equipment;
-            if (equipment != null)
-                ApplyBatteryEquipment(equipment, reason);
+            if (!TryEnterBatteryObjectApplication(target))
+                return;
 
-            ApplyBatteryCapacityParameter(GetParameterField(target, "energyCapacityGain"));
-            Parameter energyUsage = GetParameterField(target, "energyUsage");
-            ApplyEnergyUsageParameter(energyUsage);
-            ApplyDirectEnergyGainModifier(target, energyUsage, reason);
+            try
+            {
+                Equipment equipment = target as Equipment;
+                if (equipment != null)
+                    ApplyBatteryEquipment(equipment, reason);
+
+                ApplyBatteryCapacityParameter(GetParameterField(target, "energyCapacityGain"));
+                Parameter energyUsage = GetParameterField(target, "energyUsage");
+                ApplyEnergyUsageParameter(energyUsage);
+                ApplyDirectEnergyGainModifier(target, energyUsage, reason);
+            }
+            finally
+            {
+                ExitBatteryObjectApplication(target);
+            }
         }
 
         public static void ApplyBatteryEquipment(Equipment equipment, string reason)
         {
-            if (equipment == null || equipment.Parameters == null)
+            if (equipment == null || equipment.Parameters == null || IsSurfaceAirRuntimeObject(equipment))
                 return;
 
             ApplyBatteryCapacityParameter(GetParameter(equipment.Parameters, "EnergyCapacityGain"));
@@ -2987,7 +2999,7 @@ namespace LongSubmerged10x
 
         private static void ApplyDirectEnergyGainModifier(object target, Parameter energyUsage, string reason)
         {
-            if (target == null || energyUsage == null)
+            if (target == null || energyUsage == null || IsSurfaceAirRuntimeObject(target))
                 return;
 
             if (target is AirCompressor)
@@ -3046,33 +3058,43 @@ namespace LongSubmerged10x
 
         private static void ApplyGenericBatteryConsumer(object target, string reason)
         {
-            if (target == null)
+            if (target == null || IsSurfaceAirRuntimeObject(target))
                 return;
 
-            Type type = target.GetType();
+            if (!TryEnterBatteryObjectApplication(target))
+                return;
 
-            foreach (FieldInfo field in GetGenericEnergyUsageFields(type))
+            try
             {
-                Parameter energyUsage = GetParameterFromField(target, field);
-                if (energyUsage == null)
-                    continue;
+                Type type = target.GetType();
 
-                ApplyEnergyUsageParameter(energyUsage);
-                ApplyDirectEnergyGainModifier(target, energyUsage, reason);
-                ApplyGenericEnergyModifierFields(target, energyUsage);
+                foreach (FieldInfo field in GetGenericEnergyUsageFields(type))
+                {
+                    Parameter energyUsage = GetParameterFromField(target, field);
+                    if (energyUsage == null)
+                        continue;
+
+                    ApplyEnergyUsageParameter(energyUsage);
+                    ApplyDirectEnergyGainModifier(target, energyUsage, reason);
+                    ApplyGenericEnergyModifierFields(target, energyUsage);
+                }
+
+                foreach (FieldInfo field in GetGenericParameterCollectionFields(type))
+                {
+                    ParameterCollection parameters = GetParameterCollectionFromField(target, field);
+                    if (parameters == null)
+                        continue;
+
+                    ApplyBatteryCapacityParameter(GetParameter(parameters, "EnergyCapacityGain"));
+                    Parameter energyUsage = GetParameter(parameters, "EnergyUsage");
+                    ApplyEnergyUsageParameter(energyUsage);
+                    ApplyDirectEnergyGainModifier(target, energyUsage, reason);
+                    ApplyGenericEnergyModifierFields(target, energyUsage);
+                }
             }
-
-            foreach (FieldInfo field in GetGenericParameterCollectionFields(type))
+            finally
             {
-                ParameterCollection parameters = GetParameterCollectionFromField(target, field);
-                if (parameters == null)
-                    continue;
-
-                ApplyBatteryCapacityParameter(GetParameter(parameters, "EnergyCapacityGain"));
-                Parameter energyUsage = GetParameter(parameters, "EnergyUsage");
-                ApplyEnergyUsageParameter(energyUsage);
-                ApplyDirectEnergyGainModifier(target, energyUsage, reason);
-                ApplyGenericEnergyModifierFields(target, energyUsage);
+                ExitBatteryObjectApplication(target);
             }
         }
 
@@ -3149,6 +3171,54 @@ namespace LongSubmerged10x
                 && name.IndexOf("Modifier", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private static bool IsSurfaceAirRuntimeObject(object target)
+        {
+            if (target == null)
+                return false;
+
+            // AirCompressor et Ventilation sont volontairement laissés vanilla.
+            // Ils s'activent autour du retour en surface et peuvent recalculer EnergyUsage en cascade.
+            if (target is AirCompressor || target is Ventilation)
+                return true;
+
+            Type type = target.GetType();
+            if (type != null && IsSurfaceAirName(type.Name))
+                return true;
+
+            UnityEngine.Object unityObject = target as UnityEngine.Object;
+            if (unityObject != null && IsSurfaceAirName(unityObject.name))
+                return true;
+
+            return false;
+        }
+
+        private static bool IsSurfaceAirName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            return name.IndexOf("AirCompressor", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Ventilation", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Atmosphere", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Oxygen", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool TryEnterBatteryObjectApplication(object target)
+        {
+            if (target == null)
+                return false;
+
+            return BatteryObjectApplicationGuardIds.Add(RuntimeHelpers.GetHashCode(target));
+        }
+
+        private static void ExitBatteryObjectApplication(object target)
+        {
+            if (target == null)
+                return;
+
+            BatteryObjectApplicationGuardIds.Remove(RuntimeHelpers.GetHashCode(target));
+        }
+
         private static Parameter GetParameterFromField(object target, FieldInfo field)
         {
             try
@@ -3175,7 +3245,7 @@ namespace LongSubmerged10x
 
         private static void ApplyGenericEnergyModifierFields(object target, Parameter energyUsage)
         {
-            if (target == null || energyUsage == null)
+            if (target == null || energyUsage == null || IsSurfaceAirRuntimeObject(target))
                 return;
 
             float usage = energyUsage.Value;
@@ -3285,7 +3355,7 @@ namespace LongSubmerged10x
 
             try
             {
-                // SurfaceSafe 1.4.6 :
+                // SurfaceSafe 1.4.7 :
                 // UBOAT recalcule d'abord sa respiration vanilla.
                 // Ensuite seulement, le mod réduit le drain négatif si Mega Oxygène est actif.
                 // On ne touche pas aux valeurs nulles/positives utilisées pendant la surface/recharge.
@@ -3736,7 +3806,7 @@ namespace LongSubmerged10x
         private static void Postfix(PlayerShip __instance)
         {
             // DonJ : je maintiens la batterie ici, apres la frame du sous-marin.
-            // Je ne patche plus Resource.UpdateAmount en 1.4.6, parce que cette methode sert aussi
+            // Je ne patche plus Resource.UpdateAmount en 1.4.7, parce que cette methode sert aussi
             // a Oxygen pendant la recharge de surface et doit rester 100 % vanilla.
             LongSubmergedRuntimeApplier.ApplyBatteryResource(__instance, "PlayerShip.Update");
         }
@@ -3875,24 +3945,6 @@ namespace LongSubmerged10x
         }
     }
 
-    [HarmonyPatch(typeof(AirCompressor), "OnEnable")]
-    internal static class AirCompressorOnEnablePatch
-    {
-        private static void Postfix(AirCompressor __instance)
-        {
-            LongSubmergedRuntimeApplier.ApplyBatteryObject(__instance, "AirCompressor.OnEnable");
-        }
-    }
-
-    [HarmonyPatch(typeof(AirCompressor), "EnergyUsage_Changed")]
-    internal static class AirCompressorEnergyUsageChangedPatch
-    {
-        private static void Postfix(AirCompressor __instance)
-        {
-            LongSubmergedRuntimeApplier.ApplyBatteryObject(__instance, "AirCompressor.EnergyUsage_Changed");
-        }
-    }
-
     [HarmonyPatch(typeof(Gyrocompass), "ApplyModifiers")]
     internal static class GyrocompassApplyModifiersPatch
     {
@@ -3908,15 +3960,6 @@ namespace LongSubmerged10x
         private static void Postfix(TrimPump __instance)
         {
             LongSubmergedRuntimeApplier.ApplyBatteryObject(__instance, "TrimPump.OnEnable");
-        }
-    }
-
-    [HarmonyPatch(typeof(Ventilation), "OnEnable")]
-    internal static class VentilationOnEnablePatch
-    {
-        private static void Postfix(Ventilation __instance)
-        {
-            LongSubmergedRuntimeApplier.ApplyBatteryObject(__instance, "Ventilation.OnEnable");
         }
     }
 
@@ -4174,7 +4217,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--air-capacity-factor",
         type=float,
         default=DEFAULT_AIR_CAPACITY_FACTOR,
-        help="Option conservee pour compatibilite, mais SurfaceSafe 1.4.6 ne modifie plus les capacites d'air XLSX.",
+        help="Option conservee pour compatibilite, mais SurfaceSafe 1.4.7 ne modifie plus les capacites d'air XLSX.",
     )
 
     parser.add_argument(
@@ -4442,7 +4485,7 @@ def main(argv: list[str]) -> int:
             )
 
         # 2) XLSX de gameplay : batterie et EnergyUsage seulement.
-        # SurfaceSafe 1.4.6 ne genere plus de ligne Air/Oxygen/Atmosphere pour laisser la recharge surface vanilla.
+        # SurfaceSafe 1.4.7 ne genere plus de ligne Air/Oxygen/Atmosphere pour laisser la recharge surface vanilla.
         # Je ne scanne pas les gros fichiers Locales/Story/Graphics : ils ne portent pas ces systèmes
         # et ralentissent inutilement la génération.
         generic_changed = 0

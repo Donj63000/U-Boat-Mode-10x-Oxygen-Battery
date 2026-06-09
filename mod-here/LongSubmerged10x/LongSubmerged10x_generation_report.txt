@@ -41,9 +41,6 @@ Changements :
 - Entities.xlsx / Types / Type IXA (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type IXC (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type IXC40 (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
-- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Cache
-- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Data Sheets
-- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Temp
 
 Avertissements :
 - Realistic Travel\General.xlsx: ligne introuvable dans Settings : 'Fatigue - Max Penalty'

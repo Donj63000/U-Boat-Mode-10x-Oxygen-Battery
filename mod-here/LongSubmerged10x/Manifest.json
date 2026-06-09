@@ -1,7 +1,7 @@
 {
   "name": "Long Submerged 10x+",
-  "version": "1.4.6",
-  "description": "Immersion longue : oxygene long applique au runtime, recharge surface vanilla, aucune capacite d'air XLSX modifiee, discipline x1/15, batterie x10, consommation electrique runtime 0 par defaut, fallback x0.1, recharge diesel vanilla, 2 crans rapides vitesse x3.5, carburant rapide x8, vitesse max joueur 45 km/h, menu runtime F10. sliders runtime 1-100 pour batterie, oxygene, SuperVitesse et torpilles. mega torpilles : degats torpilles x10, effets visuels d'explosion bornes x3 pour stabilite. fiabilite torpilles parfaite : DudChance et defaillances magnetiques a 0. cette version garde la ventilation vanilla par défaut.",
+  "version": "1.4.7",
+  "description": "Immersion longue : oxygene long applique au runtime, recharge surface vanilla, aucune capacite d'air XLSX modifiee, discipline x1/15, batterie x10, consommation electrique runtime 0 par defaut, fallback x0.1, recharge diesel vanilla, 2 crans rapides vitesse x3.5, carburant rapide x8, vitesse max joueur 45 km/h, menu runtime F10. sliders runtime 1-100 pour batterie, oxygene, SuperVitesse et torpilles. mega torpilles : degats torpilles x10, effets visuels d'explosion bornes x3 pour stabilite. fiabilite torpilles parfaite : DudChance et defaillances magnetiques a 0. cette version garde AirCompressor et Ventilation vanilla pendant la remontée surface.",
   "author": "VotreNomOuVotreEquipe",
   "minGameVersion": "2026.1",
   "maxGameVersion": "",
@@ -9,7 +9,7 @@
     "2026.1 Patch 20",
     "2026.1"
   ],
-  "assemblyName": "LongSubmerged10xPatch_1_4_6",
+  "assemblyName": "LongSubmerged10xPatch_1_4_7",
   "permissions": [
     "Reflection"
   ],
