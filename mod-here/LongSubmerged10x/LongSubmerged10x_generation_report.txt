@@ -3,7 +3,6 @@
 Compteurs :
 - battery_capacity_rows: 3
 - energy_usage_rows: 6
-- general_oxygen_consumption_rows: 2
 - player_submarine_speed_rows: 8
 
 Fichiers générés :
@@ -18,14 +17,12 @@ Changements :
 - Mega Oxygene : profil par defaut calibre pour environ 90 jours.
 - Menu F10 : sliders runtime 1-100 et bouton Par defaut.
 - SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant.
-- Mega torpilles : runtime F10 reglable 1-100, defaut x10, guidage cible verrouillee, aucune ligne torpille XLSX ecrasee.
+- Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.
 - General.xlsx / Settings / Underwater Discipline Loss: Normal: 1e-05 -> 6.666666666666667e-07; Hard: 1e-05 -> 6.666666666666667e-07; Very Hard: 1e-05 -> 6.666666666666667e-07 | Discipline sous l'eau environ 15x moins punitive.
 - General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
 - General.xlsx / Settings / Fatigue - Max Penalty: Normal: -0.00012 -> -8e-06; Hard: -0.000155 -> -1.0333333333333333e-05; Very Hard: -0.0002 -> -1.3333333333333333e-05 | Pénalité maximale de fatigue réduite proportionnellement.
-- General.xlsx / Settings / Oxygen Consumption Per Character: Value: -9e-06 -> -5e-09 | Consommation air/qualité d'air divisée par 1800. Ce n'est plus le seul levier, car l'UI peut garder un minimum affiché.
 - Realistic Travel\General.xlsx / Settings / Underwater Discipline Loss: Normal: 8.5e-05 -> 5.666666666666667e-06; Hard: 8.5e-05 -> 5.666666666666667e-06; Very Hard: 8.5e-05 -> 5.666666666666667e-06 | Discipline sous l'eau environ 15x moins punitive.
 - Realistic Travel\General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
-- Realistic Travel\General.xlsx / Settings / Oxygen Consumption Per Character: Value: -1.33e-06 -> -7.388888888888889e-10 | Consommation air/qualité d'air divisée par 1800. Ce n'est plus le seul levier, car l'UI peut garder un minimum affiché.
 - DLC Type IX detecte : C:\Program Files (x86)\Steam\steamapps\common\UBOAT\UBOAT_Data\StreamingAssets\Packages\uboat.dlc.type-ix\Data Sheets
 - Entities.xlsx / Types / Type IIA (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type IID (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
@@ -44,7 +41,9 @@ Changements :
 - Entities.xlsx / Types / Type IXA (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type IXC (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
 - Entities.xlsx / Types / Type IXC40 (Player) | Submarine | 32.8 | 769 | 871 | 67.1: Speed (km/h): 32.8 -> 45.0
+- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Cache
+- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Data Sheets
+- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Temp
 
 Avertissements :
 - Realistic Travel\General.xlsx: ligne introuvable dans Settings : 'Fatigue - Max Penalty'
-- Aucune ligne de capacité d'air/atmosphère n'a été trouvée. Le mod a quand même réduit Oxygen Consumption Per Character, mais si l'UI reste à 13h, il faudra récupérer dans le rapport la ligne contenant Air/Oxygen/Atmosphere du fichier local.

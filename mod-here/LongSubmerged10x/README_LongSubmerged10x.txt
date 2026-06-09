@@ -1,8 +1,8 @@
-Long Submerged 10x+ v1.4.3
+Long Submerged 10x+ v1.4.6
 
 Paramètres utilisés :
-- Air / atmosphère de base : capacité x1800
-- Oxygen Consumption Per Character : divisé par 1800
+- Oxygene long : applique au runtime sur le drain negatif de respiration
+- Recharge surface : vanilla, aucune capacite Air/Oxygen/Atmosphere XLSX modifiee
 - Discipline/fatigue sous l'eau : divisé par 15
 - Batterie / Accumulators : x10
 - EnergyUsage consommateurs hors ventilation/compresseurs : x0.1 dans les datasheets
@@ -19,9 +19,9 @@ Paramètres utilisés :
 - Bouton Par defaut : restaure les reglages du profil actuel
 - Mega torpilles : oui
 - Mega torpilles degats : x10
-- Mega torpilles rayon explosion : x10
-- Mega torpilles intensite explosion : x10
-- Mega torpilles guidage : cible verrouillee corrigee pendant le vol
+- Mega torpilles effets visuels rayon explosion : x3
+- Mega torpilles effets visuels intensite explosion : x3
+- Mega torpilles guidage runtime : desactive pour stabilite surface/alarme
 - Fiabilite parfaite torpilles : oui
 - DudChance torpilles : 0
 - Defaillance magnetique torpilles : 0
@@ -29,7 +29,7 @@ Paramètres utilisés :
 - Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_4_3, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles, menu et garde-fou feu/fumee
+- Patch runtime : LongSubmerged10xPatch_1_4_6, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme
 
 Installation :
 1. Fermer UBOAT.
@@ -41,8 +41,8 @@ Notes :
 - La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.
 - La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
-- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.
-- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif.
+- Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.
+- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.
 - Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.
 - Les sliders F10 sont persistants et s'appliquent directement en partie avec Reappliquer maintenant ou au changement de valeur.
 - Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.
@@ -57,9 +57,6 @@ Notes :
 - Si un autre mod touche l'air, mets Long Submerged 10x+ après lui dans l'ordre de chargement.
 
 Compteurs de génération :
-- Lignes General Oxygen Consumption : 2
-- Lignes capacité air Parameters : 0
-- Lignes capacité air cellules : 0
 - Lignes batterie : 3
 - Lignes EnergyUsage consommation : 6
 - Lignes EnergyUsage recharge : 0
@@ -67,4 +64,4 @@ Compteurs de génération :
 - Menu F10 : sliders runtime 1-100 et bouton Par defaut
 - SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant
 - Lignes vitesse sous-marin joueur : 8
-- Mega torpilles : runtime F10 reglable 1-100, defaut x10, guidage cible verrouillee, aucune ligne torpille XLSX ecrasee
+- Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee

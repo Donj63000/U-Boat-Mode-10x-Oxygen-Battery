@@ -7,10 +7,10 @@ Générateur de mod Data Sheets.
 
 But de cette version :
 - Garder la batterie longue durée qui fonctionne déjà.
-- Corriger l'air / "qualité de l'air" pour viser environ 90 jours de base.
+- Corriger l'air / "qualité de l'air" pour viser environ 90 jours.
 - Ne plus casser la ventilation : la ligne Ventilation reste vanilla par défaut.
-- Patcher aussi la capacité / réserve de l'atmosphère quand elle est exposée dans les datasheets,
-  parce que baisser seulement "Oxygen Consumption Per Character" peut être plafonné par le jeu.
+- SurfaceSafe 1.4.6 : ne plus modifier l'oxygène ni la capacité d'air dans les Data Sheets.
+- Appliquer l'oxygène long uniquement au runtime sur le drain négatif de respiration.
 
 Prérequis :
     py -m pip install openpyxl
@@ -47,15 +47,15 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.4.3"
+MOD_VERSION = "1.4.6"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_3"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_6"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
 # Ton retour en jeu donne environ 6 à 7 jours avec le réglage 125.
 # 1800 / 125 = x14.4, donc je vise environ 90 jours en conditions réelles.
-DEFAULT_AIR_CAPACITY_FACTOR = 1800.0
+DEFAULT_AIR_CAPACITY_FACTOR = 1.0
 
 # On garde aussi la baisse de consommation par personnage, mais ce n'est plus le levier principal :
 # certaines versions / configs semblent garder un minimum visible dans l'UI, par exemple "Équipage -4/min".
@@ -79,8 +79,8 @@ DEFAULT_PLAYER_SUBMARINE_MAX_SPEED = 45.0
 DEFAULT_MEGA_TORPEDOES = True
 DEFAULT_TORPEDO_DAMAGE_FACTOR = 10.0
 DEFAULT_TORPEDO_CREW_DAMAGE_FACTOR = 10.0
-DEFAULT_TORPEDO_EXPLOSION_RADIUS_FACTOR = 10.0
-DEFAULT_TORPEDO_EXPLOSION_INTENSITY_FACTOR = 10.0
+DEFAULT_TORPEDO_EXPLOSION_RADIUS_FACTOR = 3.0
+DEFAULT_TORPEDO_EXPLOSION_INTENSITY_FACTOR = 3.0
 DEFAULT_PERFECT_TORPEDO_RELIABILITY = True
 DEFAULT_TORPEDO_DUD_CHANCE = 0.0
 DEFAULT_TORPEDO_MAGNETIC_FAILURE_CHANCE = 0.0
@@ -396,15 +396,6 @@ def find_columns_by_header(ws: Worksheet, header_row: int) -> dict[str, list[int
 def build_general_patches(args: argparse.Namespace) -> list[GeneralPatch]:
     patches = [
         GeneralPatch(
-            row_id="Oxygen Consumption Per Character",
-            multiplier=1.0 / args.oxygen_consumption_factor,
-            expected_category="/Resources",
-            reason=(
-                f"Consommation air/qualité d'air divisée par {args.oxygen_consumption_factor:g}. "
-                "Ce n'est plus le seul levier, car l'UI peut garder un minimum affiché."
-            ),
-        ),
-        GeneralPatch(
             row_id="Underwater Discipline Loss",
             multiplier=1.0 / args.discipline_factor,
             expected_category="/Discipline",
@@ -556,10 +547,6 @@ def apply_general_hit_values(
         + "; ".join(changes)
         + f" | {hit.patch.reason}"
     )
-
-    if norm_text(hit.patch.row_id) == "oxygen consumption per character":
-        report.inc("general_oxygen_consumption_rows")
-
 
 def create_general_override(
     vanilla_general: Path,
@@ -1063,28 +1050,9 @@ def patch_parameter_cell(
     # Torpilles : je les applique maintenant en runtime pour pouvoir les couper proprement dans le menu.
     # Les XLSX gardent les valeurs vanilla, le toggle Mega Torpilles ajoute/retire les multiplicateurs en jeu.
 
-    # Air / atmosphère de base : c'est le nouveau levier principal.
-    # On vise les clés de capacité/stock, jamais les clés Gain/Usage/Consumption.
-    if has_air_context(row_text_full) or is_player_submarine_context(row_text_full):
-        def only_air_capacity(raw_key: str, match: re.Match[str]) -> bool:
-            parsed = safe_float((match.group("number") or "") + (match.group("percent") or ""))
-            if parsed is None:
-                return False
-            return is_air_capacity_key(raw_key, row_text_full, parsed)
-
-        air_capacity_multipliers = {key: args.air_capacity_factor for key in AIR_CAPACITY_KEYS}
-        air_capacity_multipliers.update({"Oxygen": args.air_capacity_factor, "Air": args.air_capacity_factor})
-
-        patched, local_changes = replace_keyed_parameters(
-            new_parameters,
-            air_capacity_multipliers,
-            only_when=only_air_capacity,
-        )
-
-        if local_changes:
-            new_parameters = patched
-            changes.extend(local_changes)
-            counters["air_capacity_parameter_rows"] = 1
+    # SurfaceSafe 1.4.6 :
+    # Ne plus modifier les capacites Air/Oxygen/Atmosphere dans les Data Sheets.
+    # La transition surface recharge l'air avec les valeurs vanilla ; l'oxygene long est applique uniquement au runtime.
 
     # Ventilation : désactivé par défaut pour revenir au fonctionnement vanilla.
     # Si tu actives explicitement --patch-ventilation, on ne touche PAS RegenerationLimit.
@@ -1135,6 +1103,11 @@ def patch_simple_air_capacity_cells(
     Patch les cellules numériques d'une ligne qui représente clairement une réserve/capacité d'air,
     même si la ligne n'utilise pas de colonne Parameters.
     """
+    # SurfaceSafe 1.4.6 :
+    # Désactivé volontairement. Modifier directement les réserves/capacités d'air peut casser
+    # la transition immersion -> surface quand UBOAT recharge l'atmosphère.
+    return {}, [], {}
+
     if not is_probable_air_capacity_row(ws, row, header_row, parameters_col):
         return {}, [], {}
 
@@ -1389,8 +1362,8 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
         "name": MOD_DISPLAY_NAME,
         "version": MOD_VERSION,
         "description": (
-            f"Immersion longue : air de base x{args.air_capacity_factor:g}, "
-            f"conso air x1/{args.oxygen_consumption_factor:g}, "
+            "Immersion longue : oxygene long applique au runtime, recharge surface vanilla, "
+            "aucune capacite d'air XLSX modifiee, "
             f"discipline x1/{args.discipline_factor:g}, "
             f"batterie x{args.battery_capacity_factor:g}, "
             f"consommation electrique runtime 0 par defaut, fallback x{args.energy_usage_factor:g}, "
@@ -1400,10 +1373,8 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"vitesse max joueur {args.player_submarine_max_speed:g} km/h, menu runtime F10. "
             "sliders runtime 1-100 pour batterie, oxygene, SuperVitesse et torpilles. "
             + (
-                f"mega torpilles : degats x{args.torpedo_damage_factor:g}, "
-                f"rayon explosion x{args.torpedo_explosion_radius_factor:g}, "
-                f"intensite explosion x{args.torpedo_explosion_intensity_factor:g}, "
-                "guidage cible verrouillee. "
+                f"mega torpilles : degats torpilles x{args.torpedo_damage_factor:g}, "
+                f"effets visuels d'explosion bornes x{args.torpedo_explosion_radius_factor:g} pour stabilite. "
                 if args.mega_torpedoes
                 else "mega torpilles desactivees. "
             ) +
@@ -1443,7 +1414,6 @@ using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Entities;
-using UBOAT.Game.Scene.Effects;
 using UBOAT.Game.Scene.Items;
 using UBOAT.Game.UI.Notifications;
 using UBOAT.Game.UI.Resources;
@@ -1506,7 +1476,6 @@ namespace LongSubmerged10x
             typeof(PlayerShipAwakePatch),
             typeof(PlayerShipOnAfterDeserializePatch),
             typeof(PlayerShipUpdatePatch),
-            typeof(ResourceUpdateAmountBatteryPatch),
             typeof(PlayerShipValidateTargetVelocityPatch),
             typeof(PlayerShipSavesManagerOnLoadedPatch),
             typeof(PlayerShipCrewAddedPatch),
@@ -1528,9 +1497,7 @@ namespace LongSubmerged10x
             typeof(TorpedoFixedUpdatePatch),
             typeof(TorpedoDetonatePatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
-            typeof(ResourceGuiUpdateDisplayedValuePatch),
-            typeof(DepletingResourceNotificationDoUpdatePatch),
-            typeof(FlamesRegistrySpawnParticlesPatch)
+            typeof(ResourceGuiUpdateDisplayedValuePatch)
         };
 
         public static void PatchSafely(Harmony harmony)
@@ -1559,7 +1526,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 7;
+        private const int RuntimeSettingsVersion = 10;
         public const float MinRuntimeFactor = 1f;
         public const float MaxRuntimeFactor = 100f;
         private const bool DefaultMegaBattery = true;
@@ -2160,7 +2127,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeApplier
     {
         // DonJ : constantes du profil livre. Le joueur peut ensuite ajuster en F10 sans regenerer le mod.
-        private const float OxygenVanillaRestoreFactor = __OXYGEN_CONSUMPTION_FACTOR__;
+        private const float OxygenRuntimeMaxFactor = __OXYGEN_CONSUMPTION_FACTOR__;
         private const float BatteryCapacityDataFactor = __BATTERY_CAPACITY_FACTOR__;
         private const float EnergyUsageDataFactor = __ENERGY_USAGE_FACTOR__;
         private const float BatteryCapacityVanillaRestoreScale = 1f / __BATTERY_CAPACITY_FACTOR__;
@@ -2177,7 +2144,7 @@ namespace LongSubmerged10x
         private const string RuntimeScaleModifierName = "LongSubmerged10x Runtime Toggle";
         private const string RuntimeBatteryGainModifierName = "LongSubmerged10x Battery Gain Runtime";
         private const string RuntimeNuclearBatteryCapacityModifierName = "LongSubmerged10x Nuclear Battery Capacity Runtime";
-        private const float NuclearBatteryCapacityFloor = 1000000000f;
+        private const float NuclearBatteryCapacityFloor = 100000f;
 
         private static readonly FieldInfo OxygenBreathModifierField =
             AccessTools.Field(typeof(PlayerShip), "oxygenBreathModifier");
@@ -2202,30 +2169,6 @@ namespace LongSubmerged10x
 
         private static readonly FieldInfo DepletingResourceNotificationResourceField =
             AccessTools.Field(typeof(DepletingResourceNotification), "resource");
-
-        // DonJ : UBOAT 2026.1 peut planter dans FlamesRegistry.SpawnParticles quand une flamme detachee
-        // essaye d'utiliser flamesEffect2 alors que le second systeme de particules n'existe pas encore.
-        // Je garde ces FieldInfo ici pour que le patch anti-crash reste reflechi, localise et facile a retirer.
-        private static readonly FieldInfo FlamesRegistrySmokeEffectField =
-            AccessTools.Field(typeof(FlamesRegistry), "smokeEffect");
-
-        private static readonly FieldInfo FlamesRegistryFlamesEffectField =
-            AccessTools.Field(typeof(FlamesRegistry), "flamesEffect");
-
-        private static readonly FieldInfo FlamesRegistryFlamesEffect2Field =
-            AccessTools.Field(typeof(FlamesRegistry), "flamesEffect2");
-
-        private static readonly FieldInfo FlamesRegistryFlamesSortedByZField =
-            AccessTools.Field(typeof(FlamesRegistry), "flamesSortedByZ");
-
-        private static readonly FieldInfo FlamesRegistryIsBurningField =
-            AccessTools.Field(typeof(FlamesRegistry), "isBurning");
-
-        private static readonly FieldInfo FlammableSurfaceIntensityField =
-            AccessTools.Field(typeof(FlammableSurface), "intensity");
-
-        private static readonly FieldInfo FlammableSurfaceIsDetachedField =
-            AccessTools.Field(typeof(FlammableSurface), "isDetached");
 
         private static readonly FieldInfo TorpedoHomingTargetField =
             AccessTools.Field(typeof(Torpedo), "homingTarget");
@@ -2272,8 +2215,6 @@ namespace LongSubmerged10x
         private static readonly HashSet<int> NuclearBatteryCapacityLoggedResourceIds = new HashSet<int>();
 
         private static readonly HashSet<int> BatteryTooltipRuntimeLoggedResourceIds = new HashSet<int>();
-
-        private static readonly HashSet<int> FlamesRegistryParticleGuardLoggedIds = new HashSet<int>();
 
         private static readonly Dictionary<Type, FieldInfo[]> GenericEnergyUsageFieldCache =
             new Dictionary<Type, FieldInfo[]>();
@@ -2384,25 +2325,6 @@ namespace LongSubmerged10x
                 return;
 
             ApplyBatteryRuntimeToResource(ship.Energy, reason);
-        }
-
-        public static bool TryUpdateBatteryResourceAmount(Resource resource, string reason)
-        {
-            try
-            {
-                if (!IsPlayerShipEnergyResource(resource))
-                    return false;
-
-                ApplyBatteryRuntimeToResource(resource, reason);
-
-                // DonJ : en mode infini je bloque l'UpdateAmount vanilla ; le jeu ne peut plus vider la ressource.
-                return IsInfiniteBatteryRuntimeActive();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-                return false;
-            }
         }
 
         private static void ApplyBatteryRuntimeToResource(Resource energy, string reason)
@@ -2527,169 +2449,18 @@ namespace LongSubmerged10x
 
         public static string BuildInfiniteBatteryTooltip(Resource resource)
         {
+            // DonJ : ne pas appeler resource.PrintInfo ici.
+            // PrintInfo repasse par les calculs vanilla de duree/recharge et peut toucher des etats UI
+            // sensibles pendant la transition immersion -> surface. Le tooltip batterie infinie reste donc statique.
             if (resource == null)
-                return string.Empty;
+                return "Mega Batterie : batterie infinie active.";
 
             StringBuilder builder = new StringBuilder();
-            resource.PrintInfo(builder, 1, 1f, "per min", string.Empty, false);
-            builder.Append("<line-height=50%>\n<line-height=100%>");
-            builder.AppendLine("Mega Batterie : batterie infinie active.");
+            builder.AppendLine("Capacite de la batterie 100 %");
+            builder.AppendLine("Mega Batterie : batterie nucleaire active.");
+            builder.AppendLine("La batterie est maintenue au maximum par Long Submerged 10x+.");
+            builder.AppendLine("Passe le slider Batterie sous 100 pour retrouver une duree finie.");
             return builder.ToString();
-        }
-
-        public static bool ShouldRunFlamesRegistrySpawnParticles(FlamesRegistry registry, string reason)
-        {
-            try
-            {
-                if (registry == null)
-                    return false;
-
-                ParticleSystem smokeEffect = GetParticleSystemFromField(registry, FlamesRegistrySmokeEffectField);
-                ParticleSystem flamesEffect = GetParticleSystemFromField(registry, FlamesRegistryFlamesEffectField);
-                if (smokeEffect == null || flamesEffect == null)
-                {
-                    LogFlamesRegistryParticleGuard(registry, reason, "effet principal feu/fumee manquant");
-                    return false;
-                }
-
-                ParticleSystem flamesEffect2 = GetParticleSystemFromField(registry, FlamesRegistryFlamesEffect2Field);
-                if (flamesEffect2 == null && HasDetachedActiveFlame(registry))
-                {
-                    LogFlamesRegistryParticleGuard(registry, reason, "flamesEffect2 manquant pour une flamme detachee");
-                    return false;
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                // DonJ : si mon diagnostic reflechi echoue, je laisse UBOAT continuer.
-                // Le Finalizer juste dessous garde quand meme le filet de securite contre le NullReferenceException connu.
-                Debug.LogWarning("[LongSubmerged10x] FlamesRegistry particle guard diagnostic failed after " + reason + ": " + ex.GetType().Name + ": " + ex.Message);
-                return true;
-            }
-        }
-
-        public static Exception HandleFlamesRegistrySpawnParticlesException(FlamesRegistry registry, Exception exception, string reason)
-        {
-            if (exception == null)
-                return null;
-
-            if (exception is NullReferenceException)
-            {
-                LogFlamesRegistryParticleGuard(registry, reason, "NullReferenceException absorbe dans les particules feu/fumee", exception);
-                return null;
-            }
-
-            return exception;
-        }
-
-        private static ParticleSystem GetParticleSystemFromField(object target, FieldInfo field)
-        {
-            try
-            {
-                return target != null && field != null
-                    ? field.GetValue(target) as ParticleSystem
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool HasDetachedActiveFlame(FlamesRegistry registry)
-        {
-            FlammableSurface[] surfaces = GetFlammableSurfaces(registry);
-            if (surfaces == null || surfaces.Length == 0)
-                return false;
-
-            bool[] isBurning = GetBurningFlags(registry);
-            for (int i = 0; i < surfaces.Length; i++)
-            {
-                if (isBurning != null && i < isBurning.Length && !isBurning[i])
-                    continue;
-
-                FlammableSurface surface = surfaces[i];
-                if (surface == null)
-                    continue;
-
-                if (IsDetachedFlammableSurface(surface) && GetFlammableSurfaceIntensity(surface) > 0f)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static FlammableSurface[] GetFlammableSurfaces(FlamesRegistry registry)
-        {
-            try
-            {
-                return registry != null && FlamesRegistryFlamesSortedByZField != null
-                    ? FlamesRegistryFlamesSortedByZField.GetValue(registry) as FlammableSurface[]
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool[] GetBurningFlags(FlamesRegistry registry)
-        {
-            try
-            {
-                return registry != null && FlamesRegistryIsBurningField != null
-                    ? FlamesRegistryIsBurningField.GetValue(registry) as bool[]
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool IsDetachedFlammableSurface(FlammableSurface surface)
-        {
-            try
-            {
-                return surface != null
-                    && FlammableSurfaceIsDetachedField != null
-                    && (bool)FlammableSurfaceIsDetachedField.GetValue(surface);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static float GetFlammableSurfaceIntensity(FlammableSurface surface)
-        {
-            try
-            {
-                if (surface == null || FlammableSurfaceIntensityField == null)
-                    return 0f;
-
-                object value = FlammableSurfaceIntensityField.GetValue(surface);
-                return value is float ? (float)value : 0f;
-            }
-            catch
-            {
-                return 0f;
-            }
-        }
-
-        private static void LogFlamesRegistryParticleGuard(FlamesRegistry registry, string reason, string detail, Exception exception = null)
-        {
-            int registryId = registry != null ? RuntimeHelpers.GetHashCode(registry) : 0;
-            if (!FlamesRegistryParticleGuardLoggedIds.Add(registryId))
-                return;
-
-            string message = "[LongSubmerged10x] FlamesRegistry particle guard prevented crash after " + reason + ": " + detail + ".";
-            if (exception != null)
-                message += " " + exception.GetType().Name + ": " + exception.Message;
-
-            Debug.LogWarning(message);
         }
 
         private static void FillBatteryToCapacity(Resource energy, string reason)
@@ -2823,18 +2594,37 @@ namespace LongSubmerged10x
             return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
-        public static void RestoreVanillaOxygenIfNeeded(PlayerShip ship)
+        public static void ApplyOxygenBreathModifier(PlayerShip ship, string reason)
         {
             if (ship == null || OxygenBreathModifierField == null)
                 return;
 
-            Modifier oxygenModifier = OxygenBreathModifierField.GetValue(ship) as Modifier;
-            if (oxygenModifier == null)
-                return;
+            try
+            {
+                Modifier oxygenModifier = OxygenBreathModifierField.GetValue(ship) as Modifier;
+                if (oxygenModifier == null)
+                    return;
 
-            // DonJ : je compense le XLSX pour que le slider 1 soit vanilla
-            // et que le slider 100 garde le profil demande autour de 90 jours.
-            oxygenModifier.Value *= OxygenVanillaRestoreFactor / GetEffectiveOxygenDataFactor();
+                float baseValue = oxygenModifier.Value;
+                if (!IsFinite(baseValue))
+                    return;
+
+                float desiredValue = baseValue;
+
+                // SurfaceSafe 1.4.6 :
+                // On ne touche qu'au drain negatif de respiration.
+                // Si UBOAT met une valeur nulle ou positive pendant la surface/recharge,
+                // on la laisse vanilla pour ne pas casser la transition surface.
+                if (LongSubmergedRuntimeSettings.MegaOxygen && baseValue < 0f)
+                    desiredValue = baseValue / GetEffectiveOxygenRuntimeFactor();
+
+                if (Math.Abs(oxygenModifier.Value - desiredValue) > 0.000000000001f)
+                    oxygenModifier.Value = desiredValue;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
         }
 
         public static void ApplyBatteryObject(object target, string reason)
@@ -2882,8 +2672,11 @@ namespace LongSubmerged10x
                 float torpedoFactor = GetEffectiveTorpedoFactor();
                 float damageScale = torpedoFactor;
                 float crewDamageScale = torpedoFactor;
-                float radiusScale = torpedoFactor;
-                float intensityScale = torpedoFactor;
+                // DonJ : les degats peuvent rester x10, mais les effets visuels/particules sont bornes.
+                // Des rayons/intensites x10 creent trop de surfaces feu/fumee et peuvent declencher
+                // un crash natif Unity/particules pendant les phases surface + alarme.
+                float radiusScale = Mathf.Min(torpedoFactor, 3f);
+                float intensityScale = Mathf.Min(torpedoFactor, 3f);
                 float reliabilityScale = IsMegaTorpedoRuntimeActive() && PerfectTorpedoReliability ? 0f : 1f;
 
                 SetScale(GetParameter(torpedo.Parameters, "Damage"), damageScale);
@@ -2896,10 +2689,11 @@ namespace LongSubmerged10x
                 SetScale(GetParameter(torpedo.Parameters, "MagneticExplosionFail"), reliabilityScale);
             }
 
-            if (IsMegaTorpedoRuntimeActive())
-                ApplyLockedTargetGuidance(torpedo, reason);
-            else
-                RestoreLockedTargetGuidance(torpedo);
+            // DonJ : stabilite surface/alarme.
+            // Je garde les degats/fiabilite des Mega Torpilles, mais je desactive le guidage runtime
+            // et la detonation forcee. Ces deux actions s'executaient en FixedUpdate avec des valeurs NaN
+            // et pouvaient laisser une torpille/detonation dans un etat fragile pendant l'alarme.
+            RestoreLockedTargetGuidance(torpedo);
         }
 
         private static void ApplyLockedTargetGuidance(Torpedo torpedo, string reason)
@@ -3099,18 +2893,20 @@ namespace LongSubmerged10x
                 : 1f;
         }
 
-        private static float GetEffectiveOxygenDataFactor()
+        private static float GetEffectiveOxygenRuntimeFactor()
         {
             if (!LongSubmergedRuntimeSettings.MegaOxygen)
                 return 1f;
 
-            float factor = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.OxygenFactor);
-            if (factor <= LongSubmergedRuntimeSettings.MinRuntimeFactor)
+            float sliderValue = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.OxygenFactor);
+            if (sliderValue <= LongSubmergedRuntimeSettings.MinRuntimeFactor)
                 return 1f;
 
-            float normalized = (factor - LongSubmergedRuntimeSettings.MinRuntimeFactor)
+            float normalized = (sliderValue - LongSubmergedRuntimeSettings.MinRuntimeFactor)
                 / (LongSubmergedRuntimeSettings.MaxRuntimeFactor - LongSubmergedRuntimeSettings.MinRuntimeFactor);
-            return 1f + normalized * (OxygenVanillaRestoreFactor - 1f);
+
+            float maxFactor = Mathf.Max(1f, OxygenRuntimeMaxFactor);
+            return 1f + normalized * (maxFactor - 1f);
         }
 
         private static float GetEffectiveBatteryCapacityScale()
@@ -3477,8 +3273,6 @@ namespace LongSubmerged10x
         public Vector3 OriginalTargetPositionForReports;
     }
 
-    // DonJ : recalcul de l'oxygene apres chargement/equipage. UBOAT garde parfois un modifier calcule
-    // avant les Data Sheets du mod ; je force donc le recalcul puis j'applique le facteur F10.
     internal static class OxygenBreathRecalculator
     {
         private static readonly MethodInfo ValidateOxygenBreathModifierMethod =
@@ -3491,10 +3285,13 @@ namespace LongSubmerged10x
 
             try
             {
-                // DonJ : je force le jeu a reprendre ma valeur Oxygen Consumption Per Character du fichier General.xlsx.
+                // SurfaceSafe 1.4.6 :
+                // UBOAT recalcule d'abord sa respiration vanilla.
+                // Ensuite seulement, le mod réduit le drain négatif si Mega Oxygène est actif.
+                // On ne touche pas aux valeurs nulles/positives utilisées pendant la surface/recharge.
                 ValidateOxygenBreathModifierMethod.Invoke(ship, null);
-                LongSubmergedRuntimeApplier.RestoreVanillaOxygenIfNeeded(ship);
-                Debug.Log("[LongSubmerged10x] Oxygen breath modifier recalculated after " + reason + ".");
+                LongSubmergedRuntimeApplier.ApplyOxygenBreathModifier(ship, reason);
+                Debug.Log("[LongSubmerged10x] Oxygen runtime breath modifier applied after " + reason + ".");
             }
             catch (Exception ex)
             {
@@ -3555,7 +3352,6 @@ namespace LongSubmerged10x
                 PatchEngine(ship.DieselEngine, reason + ".DieselEngine");
                 PatchEngine(ship.ElectricEngine, reason + ".ElectricEngine");
                 PatchShipVelocityCap(ship, reason, true);
-                ApplyPropellerSpeedMultiplier(ship, reason, true);
             }
             catch (Exception ex)
             {
@@ -3571,7 +3367,6 @@ namespace LongSubmerged10x
             try
             {
                 PatchShipVelocityCap(ship, reason, false);
-                ApplyPropellerSpeedMultiplier(ship, reason, false);
             }
             catch (Exception ex)
             {
@@ -3940,16 +3735,10 @@ namespace LongSubmerged10x
     {
         private static void Postfix(PlayerShip __instance)
         {
+            // DonJ : je maintiens la batterie ici, apres la frame du sous-marin.
+            // Je ne patche plus Resource.UpdateAmount en 1.4.6, parce que cette methode sert aussi
+            // a Oxygen pendant la recharge de surface et doit rester 100 % vanilla.
             LongSubmergedRuntimeApplier.ApplyBatteryResource(__instance, "PlayerShip.Update");
-        }
-    }
-
-    [HarmonyPatch(typeof(Resource), "UpdateAmount")]
-    internal static class ResourceUpdateAmountBatteryPatch
-    {
-        private static bool Prefix(Resource __instance)
-        {
-            return !LongSubmergedRuntimeApplier.TryUpdateBatteryResourceAmount(__instance, "Resource.UpdateAmount");
         }
     }
 
@@ -3990,27 +3779,6 @@ namespace LongSubmerged10x
 
             __result = 5f;
             return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(FlamesRegistry), "SpawnParticles", new Type[] { })]
-    internal static class FlamesRegistrySpawnParticlesPatch
-    {
-        private static bool Prefix(FlamesRegistry __instance)
-        {
-            return LongSubmergedRuntimeApplier.ShouldRunFlamesRegistrySpawnParticles(
-                __instance,
-                "FlamesRegistry.SpawnParticles"
-            );
-        }
-
-        private static Exception Finalizer(FlamesRegistry __instance, Exception __exception)
-        {
-            return LongSubmergedRuntimeApplier.HandleFlamesRegistrySpawnParticlesException(
-                __instance,
-                __exception,
-                "FlamesRegistry.SpawnParticles"
-            );
         }
     }
 
@@ -4225,7 +3993,7 @@ namespace LongSubmerged10x
     report.note("Mega Oxygene : profil par defaut calibre pour environ 90 jours.")
     report.note("Menu F10 : sliders runtime 1-100 et bouton Par defaut.")
     report.note("SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant.")
-    report.note("Mega torpilles : runtime F10 reglable 1-100, defaut x10, guidage cible verrouillee, aucune ligne torpille XLSX ecrasee.")
+    report.note("Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.")
 
 
 def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | None = None) -> None:
@@ -4233,8 +4001,8 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"{MOD_DISPLAY_NAME} v{MOD_VERSION}",
         "",
         "Paramètres utilisés :",
-        f"- Air / atmosphère de base : capacité x{args.air_capacity_factor:g}",
-        f"- Oxygen Consumption Per Character : divisé par {args.oxygen_consumption_factor:g}",
+        "- Oxygene long : applique au runtime sur le drain negatif de respiration",
+        "- Recharge surface : vanilla, aucune capacite Air/Oxygen/Atmosphere XLSX modifiee",
         f"- Discipline/fatigue sous l'eau : divisé par {args.discipline_factor:g}",
         f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
         f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g} dans les datasheets",
@@ -4251,9 +4019,9 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- Bouton Par defaut : restaure les reglages du profil actuel",
         f"- Mega torpilles : {'oui' if args.mega_torpedoes else 'non'}",
         f"- Mega torpilles degats : x{args.torpedo_damage_factor:g}",
-        f"- Mega torpilles rayon explosion : x{args.torpedo_explosion_radius_factor:g}",
-        f"- Mega torpilles intensite explosion : x{args.torpedo_explosion_intensity_factor:g}",
-        "- Mega torpilles guidage : cible verrouillee corrigee pendant le vol",
+        f"- Mega torpilles effets visuels rayon explosion : x{args.torpedo_explosion_radius_factor:g}",
+        f"- Mega torpilles effets visuels intensite explosion : x{args.torpedo_explosion_intensity_factor:g}",
+        "- Mega torpilles guidage runtime : desactive pour stabilite surface/alarme",
         f"- Fiabilite parfaite torpilles : {'oui' if args.perfect_torpedo_reliability else 'non'}",
         f"- DudChance torpilles : {args.torpedo_dud_chance:g}",
         f"- Defaillance magnetique torpilles : {args.torpedo_magnetic_failure_chance:g}",
@@ -4261,7 +4029,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
-        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles, menu et garde-fou feu/fumee",
+        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme",
         "",
         "Installation :",
         "1. Fermer UBOAT.",
@@ -4273,8 +4041,8 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.",
         "- La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.",
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
-        "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
-        "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif.",
+        "- Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.",
+        "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.",
         "- Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.",
         "- Les sliders F10 sont persistants et s'appliquent directement en partie avec Reappliquer maintenant ou au changement de valeur.",
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
@@ -4294,9 +4062,6 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
             [
                 "",
                 "Compteurs de génération :",
-                f"- Lignes General Oxygen Consumption : {report.counters.get('general_oxygen_consumption_rows', 0)}",
-                f"- Lignes capacité air Parameters : {report.counters.get('air_capacity_parameter_rows', 0)}",
-                f"- Lignes capacité air cellules : {report.counters.get('air_capacity_cell_rows', 0)}",
                 f"- Lignes batterie : {report.counters.get('battery_capacity_rows', 0)}",
                 f"- Lignes EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}",
                 f"- Lignes EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}",
@@ -4304,7 +4069,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 "- Menu F10 : sliders runtime 1-100 et bouton Par defaut",
                 "- SuperVitesse : runtime F10 reglable 1-100 sur les deux crans rapides avant",
                 f"- Lignes vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}",
-                "- Mega torpilles : runtime F10 reglable 1-100, defaut x10, guidage cible verrouillee, aucune ligne torpille XLSX ecrasee",
+                "- Mega torpilles : runtime F10 reglable 1-100, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee",
             ]
         )
 
@@ -4409,14 +4174,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--air-capacity-factor",
         type=float,
         default=DEFAULT_AIR_CAPACITY_FACTOR,
-        help="Multiplicateur de la réserve d'air/atmosphère. Défaut : 1800, pour viser environ 90 jours.",
+        help="Option conservee pour compatibilite, mais SurfaceSafe 1.4.6 ne modifie plus les capacites d'air XLSX.",
     )
 
     parser.add_argument(
         "--oxygen-consumption-factor",
         type=float,
         default=DEFAULT_OXYGEN_CONSUMPTION_FACTOR,
-        help="Divise Oxygen Consumption Per Character par ce facteur. Défaut : 1800.",
+        help="Facteur runtime qui divise seulement le drain negatif de respiration. Defaut : 1800.",
     )
 
     parser.add_argument(
@@ -4673,10 +4438,11 @@ def main(argv: list[str]) -> int:
         if general_changed == 0:
             report.warn(
                 "Aucun General.xlsx patché. "
-                "La ligne Oxygen Consumption Per Character et la discipline ne changeront pas."
+                "La discipline ne changera pas."
             )
 
-        # 2) XLSX de gameplay : batterie, EnergyUsage, capacité d'air exposée dans Parameters/cellules.
+        # 2) XLSX de gameplay : batterie et EnergyUsage seulement.
+        # SurfaceSafe 1.4.6 ne genere plus de ligne Air/Oxygen/Atmosphere pour laisser la recharge surface vanilla.
         # Je ne scanne pas les gros fichiers Locales/Story/Graphics : ils ne portent pas ces systèmes
         # et ralentissent inutilement la génération.
         generic_changed = 0
@@ -4724,20 +4490,7 @@ def main(argv: list[str]) -> int:
         if generic_changed == 0:
             report.warn(
                 "Aucun XLSX hors General.xlsx n'a été patché. "
-                "La batterie ou la capacité air exposée dans Entities/U-boat ne changera peut-être pas."
-            )
-
-        # Alertes ciblées.
-        air_rows = (
-            report.counters.get("air_capacity_parameter_rows", 0)
-            + report.counters.get("air_capacity_cell_rows", 0)
-        )
-
-        if air_rows == 0:
-            report.warn(
-                "Aucune ligne de capacité d'air/atmosphère n'a été trouvée. "
-                "Le mod a quand même réduit Oxygen Consumption Per Character, mais si l'UI reste à 13h, "
-                "il faudra récupérer dans le rapport la ligne contenant Air/Oxygen/Atmosphere du fichier local."
+                "La batterie exposée dans Entities/U-boat ne changera peut-être pas."
             )
 
         if report.counters.get("battery_capacity_rows", 0) == 0:
@@ -4764,8 +4517,8 @@ def main(argv: list[str]) -> int:
     print(f"Version déclarée : {args.game_version}")
 
     print("\nProfil appliqué :")
-    print(f"  - Air / atmosphère de base : x{args.air_capacity_factor:g}")
-    print(f"  - Oxygen Consumption Per Character : /{args.oxygen_consumption_factor:g}")
+    print("  - Oxygene long : runtime uniquement sur le drain negatif de respiration")
+    print("  - Recharge surface : vanilla, aucune capacite Air/Oxygen/Atmosphere XLSX modifiee")
     print("  - Objectif air : environ 90 jours avec Mega Oxygene actif")
     print(f"  - Discipline/fatigue : /{args.discipline_factor:g}")
     print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
@@ -4778,24 +4531,21 @@ def main(argv: list[str]) -> int:
     print("  - Menu F10 : reglages Batterie, Oxygene, SuperVitesse et Torpilles de 1 a 100")
     print(f"  - Mega torpilles : {'OUI' if args.mega_torpedoes else 'NON'}")
     print(f"  - Torpilles degats : x{args.torpedo_damage_factor:g}")
-    print(f"  - Torpilles rayon explosion : x{args.torpedo_explosion_radius_factor:g}")
-    print(f"  - Torpilles intensite explosion : x{args.torpedo_explosion_intensity_factor:g}")
-    print("  - Torpilles guidage : cible verrouillee corrigee pendant le vol")
+    print(f"  - Torpilles effets visuels rayon explosion : x{args.torpedo_explosion_radius_factor:g}")
+    print(f"  - Torpilles effets visuels intensite explosion : x{args.torpedo_explosion_intensity_factor:g}")
+    print("  - Torpilles guidage runtime : desactive pour stabilite surface/alarme")
     print(f"  - Fiabilite parfaite torpilles : {'OUI' if args.perfect_torpedo_reliability else 'NON'}")
     print(f"  - DudChance / defaillances torpilles : {args.torpedo_dud_chance:g}")
     print(f"  - Ventilation vanilla : {'NON, patchée' if args.patch_ventilation else 'OUI, laissée normale'}")
 
     print("\nCompteurs importants :")
-    print(f"  - General Oxygen Consumption : {report.counters.get('general_oxygen_consumption_rows', 0)}")
-    print(f"  - Capacité air dans Parameters : {report.counters.get('air_capacity_parameter_rows', 0)}")
-    print(f"  - Capacité air dans cellules : {report.counters.get('air_capacity_cell_rows', 0)}")
     print(f"  - Batterie : {report.counters.get('battery_capacity_rows', 0)}")
     print(f"  - EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}")
     print(f"  - EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}")
     print("  - Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum par defaut")
     print(f"  - Vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}")
     print("  - SuperVitesse : runtime F10 reglable 1-100")
-    print("  - Mega torpilles : runtime F10 reglable 1-100, defaut x10 et guidage cible verrouillee")
+    print("  - Mega torpilles : runtime F10 reglable 1-100, degats defaut x10 et effets visuels bornes x3")
     print("  - Fiabilite torpilles : runtime F10")
 
     print("\nFichiers générés :")

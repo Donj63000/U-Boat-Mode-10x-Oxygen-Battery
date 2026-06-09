@@ -7,7 +7,6 @@ using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Entities;
-using UBOAT.Game.Scene.Effects;
 using UBOAT.Game.Scene.Items;
 using UBOAT.Game.UI.Notifications;
 using UBOAT.Game.UI.Resources;
@@ -21,7 +20,7 @@ namespace LongSubmerged10x
     // elle charge les reglages, cree le menu F10, installe les hooks Harmony et lance une premiere passe runtime.
     public sealed class LongSubmergedRuntimePatchMod : IUserMod
     {
-        private const string RuntimeVersion = "1.4.3";
+        private const string RuntimeVersion = "1.4.6";
 
         public string Name
         {
@@ -70,7 +69,6 @@ namespace LongSubmerged10x
             typeof(PlayerShipAwakePatch),
             typeof(PlayerShipOnAfterDeserializePatch),
             typeof(PlayerShipUpdatePatch),
-            typeof(ResourceUpdateAmountBatteryPatch),
             typeof(PlayerShipValidateTargetVelocityPatch),
             typeof(PlayerShipSavesManagerOnLoadedPatch),
             typeof(PlayerShipCrewAddedPatch),
@@ -92,9 +90,7 @@ namespace LongSubmerged10x
             typeof(TorpedoFixedUpdatePatch),
             typeof(TorpedoDetonatePatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
-            typeof(ResourceGuiUpdateDisplayedValuePatch),
-            typeof(DepletingResourceNotificationDoUpdatePatch),
-            typeof(FlamesRegistrySpawnParticlesPatch)
+            typeof(ResourceGuiUpdateDisplayedValuePatch)
         };
 
         public static void PatchSafely(Harmony harmony)
@@ -123,7 +119,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 7;
+        private const int RuntimeSettingsVersion = 10;
         public const float MinRuntimeFactor = 1f;
         public const float MaxRuntimeFactor = 100f;
         private const bool DefaultMegaBattery = true;
@@ -724,15 +720,15 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeApplier
     {
         // DonJ : constantes du profil livre. Le joueur peut ensuite ajuster en F10 sans regenerer le mod.
-        private const float OxygenVanillaRestoreFactor = 1800f;
+        private const float OxygenRuntimeMaxFactor = 1800f;
         private const float BatteryCapacityDataFactor = 10f;
         private const float EnergyUsageDataFactor = 0.1f;
         private const float BatteryCapacityVanillaRestoreScale = 1f / 10f;
         private const float EnergyUsageVanillaRestoreScale = 1f / 0.1f;
         private const float TorpedoDamageScale = 10f;
         private const float TorpedoCrewDamageScale = 10f;
-        private const float TorpedoExplosionRadiusScale = 10f;
-        private const float TorpedoExplosionIntensityScale = 10f;
+        private const float TorpedoExplosionRadiusScale = 3f;
+        private const float TorpedoExplosionIntensityScale = 3f;
         private const bool PerfectTorpedoReliability = true;
         private const float TorpedoGuidanceLeadSeconds = 4f;
         private const float TorpedoGuidanceMinimumDetonationDistance = 20f;
@@ -741,7 +737,7 @@ namespace LongSubmerged10x
         private const string RuntimeScaleModifierName = "LongSubmerged10x Runtime Toggle";
         private const string RuntimeBatteryGainModifierName = "LongSubmerged10x Battery Gain Runtime";
         private const string RuntimeNuclearBatteryCapacityModifierName = "LongSubmerged10x Nuclear Battery Capacity Runtime";
-        private const float NuclearBatteryCapacityFloor = 1000000000f;
+        private const float NuclearBatteryCapacityFloor = 100000f;
 
         private static readonly FieldInfo OxygenBreathModifierField =
             AccessTools.Field(typeof(PlayerShip), "oxygenBreathModifier");
@@ -766,30 +762,6 @@ namespace LongSubmerged10x
 
         private static readonly FieldInfo DepletingResourceNotificationResourceField =
             AccessTools.Field(typeof(DepletingResourceNotification), "resource");
-
-        // DonJ : UBOAT 2026.1 peut planter dans FlamesRegistry.SpawnParticles quand une flamme detachee
-        // essaye d'utiliser flamesEffect2 alors que le second systeme de particules n'existe pas encore.
-        // Je garde ces FieldInfo ici pour que le patch anti-crash reste reflechi, localise et facile a retirer.
-        private static readonly FieldInfo FlamesRegistrySmokeEffectField =
-            AccessTools.Field(typeof(FlamesRegistry), "smokeEffect");
-
-        private static readonly FieldInfo FlamesRegistryFlamesEffectField =
-            AccessTools.Field(typeof(FlamesRegistry), "flamesEffect");
-
-        private static readonly FieldInfo FlamesRegistryFlamesEffect2Field =
-            AccessTools.Field(typeof(FlamesRegistry), "flamesEffect2");
-
-        private static readonly FieldInfo FlamesRegistryFlamesSortedByZField =
-            AccessTools.Field(typeof(FlamesRegistry), "flamesSortedByZ");
-
-        private static readonly FieldInfo FlamesRegistryIsBurningField =
-            AccessTools.Field(typeof(FlamesRegistry), "isBurning");
-
-        private static readonly FieldInfo FlammableSurfaceIntensityField =
-            AccessTools.Field(typeof(FlammableSurface), "intensity");
-
-        private static readonly FieldInfo FlammableSurfaceIsDetachedField =
-            AccessTools.Field(typeof(FlammableSurface), "isDetached");
 
         private static readonly FieldInfo TorpedoHomingTargetField =
             AccessTools.Field(typeof(Torpedo), "homingTarget");
@@ -836,8 +808,6 @@ namespace LongSubmerged10x
         private static readonly HashSet<int> NuclearBatteryCapacityLoggedResourceIds = new HashSet<int>();
 
         private static readonly HashSet<int> BatteryTooltipRuntimeLoggedResourceIds = new HashSet<int>();
-
-        private static readonly HashSet<int> FlamesRegistryParticleGuardLoggedIds = new HashSet<int>();
 
         private static readonly Dictionary<Type, FieldInfo[]> GenericEnergyUsageFieldCache =
             new Dictionary<Type, FieldInfo[]>();
@@ -948,25 +918,6 @@ namespace LongSubmerged10x
                 return;
 
             ApplyBatteryRuntimeToResource(ship.Energy, reason);
-        }
-
-        public static bool TryUpdateBatteryResourceAmount(Resource resource, string reason)
-        {
-            try
-            {
-                if (!IsPlayerShipEnergyResource(resource))
-                    return false;
-
-                ApplyBatteryRuntimeToResource(resource, reason);
-
-                // DonJ : en mode infini je bloque l'UpdateAmount vanilla ; le jeu ne peut plus vider la ressource.
-                return IsInfiniteBatteryRuntimeActive();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-                return false;
-            }
         }
 
         private static void ApplyBatteryRuntimeToResource(Resource energy, string reason)
@@ -1091,169 +1042,18 @@ namespace LongSubmerged10x
 
         public static string BuildInfiniteBatteryTooltip(Resource resource)
         {
+            // DonJ : ne pas appeler resource.PrintInfo ici.
+            // PrintInfo repasse par les calculs vanilla de duree/recharge et peut toucher des etats UI
+            // sensibles pendant la transition immersion -> surface. Le tooltip batterie infinie reste donc statique.
             if (resource == null)
-                return string.Empty;
+                return "Mega Batterie : batterie infinie active.";
 
             StringBuilder builder = new StringBuilder();
-            resource.PrintInfo(builder, 1, 1f, "per min", string.Empty, false);
-            builder.Append("<line-height=50%>\n<line-height=100%>");
-            builder.AppendLine("Mega Batterie : batterie infinie active.");
+            builder.AppendLine("Capacite de la batterie 100 %");
+            builder.AppendLine("Mega Batterie : batterie nucleaire active.");
+            builder.AppendLine("La batterie est maintenue au maximum par Long Submerged 10x+.");
+            builder.AppendLine("Passe le slider Batterie sous 100 pour retrouver une duree finie.");
             return builder.ToString();
-        }
-
-        public static bool ShouldRunFlamesRegistrySpawnParticles(FlamesRegistry registry, string reason)
-        {
-            try
-            {
-                if (registry == null)
-                    return false;
-
-                ParticleSystem smokeEffect = GetParticleSystemFromField(registry, FlamesRegistrySmokeEffectField);
-                ParticleSystem flamesEffect = GetParticleSystemFromField(registry, FlamesRegistryFlamesEffectField);
-                if (smokeEffect == null || flamesEffect == null)
-                {
-                    LogFlamesRegistryParticleGuard(registry, reason, "effet principal feu/fumee manquant");
-                    return false;
-                }
-
-                ParticleSystem flamesEffect2 = GetParticleSystemFromField(registry, FlamesRegistryFlamesEffect2Field);
-                if (flamesEffect2 == null && HasDetachedActiveFlame(registry))
-                {
-                    LogFlamesRegistryParticleGuard(registry, reason, "flamesEffect2 manquant pour une flamme detachee");
-                    return false;
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                // DonJ : si mon diagnostic reflechi echoue, je laisse UBOAT continuer.
-                // Le Finalizer juste dessous garde quand meme le filet de securite contre le NullReferenceException connu.
-                Debug.LogWarning("[LongSubmerged10x] FlamesRegistry particle guard diagnostic failed after " + reason + ": " + ex.GetType().Name + ": " + ex.Message);
-                return true;
-            }
-        }
-
-        public static Exception HandleFlamesRegistrySpawnParticlesException(FlamesRegistry registry, Exception exception, string reason)
-        {
-            if (exception == null)
-                return null;
-
-            if (exception is NullReferenceException)
-            {
-                LogFlamesRegistryParticleGuard(registry, reason, "NullReferenceException absorbe dans les particules feu/fumee", exception);
-                return null;
-            }
-
-            return exception;
-        }
-
-        private static ParticleSystem GetParticleSystemFromField(object target, FieldInfo field)
-        {
-            try
-            {
-                return target != null && field != null
-                    ? field.GetValue(target) as ParticleSystem
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool HasDetachedActiveFlame(FlamesRegistry registry)
-        {
-            FlammableSurface[] surfaces = GetFlammableSurfaces(registry);
-            if (surfaces == null || surfaces.Length == 0)
-                return false;
-
-            bool[] isBurning = GetBurningFlags(registry);
-            for (int i = 0; i < surfaces.Length; i++)
-            {
-                if (isBurning != null && i < isBurning.Length && !isBurning[i])
-                    continue;
-
-                FlammableSurface surface = surfaces[i];
-                if (surface == null)
-                    continue;
-
-                if (IsDetachedFlammableSurface(surface) && GetFlammableSurfaceIntensity(surface) > 0f)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static FlammableSurface[] GetFlammableSurfaces(FlamesRegistry registry)
-        {
-            try
-            {
-                return registry != null && FlamesRegistryFlamesSortedByZField != null
-                    ? FlamesRegistryFlamesSortedByZField.GetValue(registry) as FlammableSurface[]
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool[] GetBurningFlags(FlamesRegistry registry)
-        {
-            try
-            {
-                return registry != null && FlamesRegistryIsBurningField != null
-                    ? FlamesRegistryIsBurningField.GetValue(registry) as bool[]
-                    : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool IsDetachedFlammableSurface(FlammableSurface surface)
-        {
-            try
-            {
-                return surface != null
-                    && FlammableSurfaceIsDetachedField != null
-                    && (bool)FlammableSurfaceIsDetachedField.GetValue(surface);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static float GetFlammableSurfaceIntensity(FlammableSurface surface)
-        {
-            try
-            {
-                if (surface == null || FlammableSurfaceIntensityField == null)
-                    return 0f;
-
-                object value = FlammableSurfaceIntensityField.GetValue(surface);
-                return value is float ? (float)value : 0f;
-            }
-            catch
-            {
-                return 0f;
-            }
-        }
-
-        private static void LogFlamesRegistryParticleGuard(FlamesRegistry registry, string reason, string detail, Exception exception = null)
-        {
-            int registryId = registry != null ? RuntimeHelpers.GetHashCode(registry) : 0;
-            if (!FlamesRegistryParticleGuardLoggedIds.Add(registryId))
-                return;
-
-            string message = "[LongSubmerged10x] FlamesRegistry particle guard prevented crash after " + reason + ": " + detail + ".";
-            if (exception != null)
-                message += " " + exception.GetType().Name + ": " + exception.Message;
-
-            Debug.LogWarning(message);
         }
 
         private static void FillBatteryToCapacity(Resource energy, string reason)
@@ -1387,18 +1187,37 @@ namespace LongSubmerged10x
             return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
-        public static void RestoreVanillaOxygenIfNeeded(PlayerShip ship)
+        public static void ApplyOxygenBreathModifier(PlayerShip ship, string reason)
         {
             if (ship == null || OxygenBreathModifierField == null)
                 return;
 
-            Modifier oxygenModifier = OxygenBreathModifierField.GetValue(ship) as Modifier;
-            if (oxygenModifier == null)
-                return;
+            try
+            {
+                Modifier oxygenModifier = OxygenBreathModifierField.GetValue(ship) as Modifier;
+                if (oxygenModifier == null)
+                    return;
 
-            // DonJ : je compense le XLSX pour que le slider 1 soit vanilla
-            // et que le slider 100 garde le profil demande autour de 90 jours.
-            oxygenModifier.Value *= OxygenVanillaRestoreFactor / GetEffectiveOxygenDataFactor();
+                float baseValue = oxygenModifier.Value;
+                if (!IsFinite(baseValue))
+                    return;
+
+                float desiredValue = baseValue;
+
+                // SurfaceSafe 1.4.6 :
+                // On ne touche qu'au drain negatif de respiration.
+                // Si UBOAT met une valeur nulle ou positive pendant la surface/recharge,
+                // on la laisse vanilla pour ne pas casser la transition surface.
+                if (LongSubmergedRuntimeSettings.MegaOxygen && baseValue < 0f)
+                    desiredValue = baseValue / GetEffectiveOxygenRuntimeFactor();
+
+                if (Math.Abs(oxygenModifier.Value - desiredValue) > 0.000000000001f)
+                    oxygenModifier.Value = desiredValue;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
         }
 
         public static void ApplyBatteryObject(object target, string reason)
@@ -1446,8 +1265,11 @@ namespace LongSubmerged10x
                 float torpedoFactor = GetEffectiveTorpedoFactor();
                 float damageScale = torpedoFactor;
                 float crewDamageScale = torpedoFactor;
-                float radiusScale = torpedoFactor;
-                float intensityScale = torpedoFactor;
+                // DonJ : les degats peuvent rester x10, mais les effets visuels/particules sont bornes.
+                // Des rayons/intensites x10 creent trop de surfaces feu/fumee et peuvent declencher
+                // un crash natif Unity/particules pendant les phases surface + alarme.
+                float radiusScale = Mathf.Min(torpedoFactor, 3f);
+                float intensityScale = Mathf.Min(torpedoFactor, 3f);
                 float reliabilityScale = IsMegaTorpedoRuntimeActive() && PerfectTorpedoReliability ? 0f : 1f;
 
                 SetScale(GetParameter(torpedo.Parameters, "Damage"), damageScale);
@@ -1460,10 +1282,11 @@ namespace LongSubmerged10x
                 SetScale(GetParameter(torpedo.Parameters, "MagneticExplosionFail"), reliabilityScale);
             }
 
-            if (IsMegaTorpedoRuntimeActive())
-                ApplyLockedTargetGuidance(torpedo, reason);
-            else
-                RestoreLockedTargetGuidance(torpedo);
+            // DonJ : stabilite surface/alarme.
+            // Je garde les degats/fiabilite des Mega Torpilles, mais je desactive le guidage runtime
+            // et la detonation forcee. Ces deux actions s'executaient en FixedUpdate avec des valeurs NaN
+            // et pouvaient laisser une torpille/detonation dans un etat fragile pendant l'alarme.
+            RestoreLockedTargetGuidance(torpedo);
         }
 
         private static void ApplyLockedTargetGuidance(Torpedo torpedo, string reason)
@@ -1663,18 +1486,20 @@ namespace LongSubmerged10x
                 : 1f;
         }
 
-        private static float GetEffectiveOxygenDataFactor()
+        private static float GetEffectiveOxygenRuntimeFactor()
         {
             if (!LongSubmergedRuntimeSettings.MegaOxygen)
                 return 1f;
 
-            float factor = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.OxygenFactor);
-            if (factor <= LongSubmergedRuntimeSettings.MinRuntimeFactor)
+            float sliderValue = LongSubmergedRuntimeSettings.ClampFactor(LongSubmergedRuntimeSettings.OxygenFactor);
+            if (sliderValue <= LongSubmergedRuntimeSettings.MinRuntimeFactor)
                 return 1f;
 
-            float normalized = (factor - LongSubmergedRuntimeSettings.MinRuntimeFactor)
+            float normalized = (sliderValue - LongSubmergedRuntimeSettings.MinRuntimeFactor)
                 / (LongSubmergedRuntimeSettings.MaxRuntimeFactor - LongSubmergedRuntimeSettings.MinRuntimeFactor);
-            return 1f + normalized * (OxygenVanillaRestoreFactor - 1f);
+
+            float maxFactor = Mathf.Max(1f, OxygenRuntimeMaxFactor);
+            return 1f + normalized * (maxFactor - 1f);
         }
 
         private static float GetEffectiveBatteryCapacityScale()
@@ -2041,8 +1866,6 @@ namespace LongSubmerged10x
         public Vector3 OriginalTargetPositionForReports;
     }
 
-    // DonJ : recalcul de l'oxygene apres chargement/equipage. UBOAT garde parfois un modifier calcule
-    // avant les Data Sheets du mod ; je force donc le recalcul puis j'applique le facteur F10.
     internal static class OxygenBreathRecalculator
     {
         private static readonly MethodInfo ValidateOxygenBreathModifierMethod =
@@ -2055,10 +1878,13 @@ namespace LongSubmerged10x
 
             try
             {
-                // DonJ : je force le jeu a reprendre ma valeur Oxygen Consumption Per Character du fichier General.xlsx.
+                // SurfaceSafe 1.4.6 :
+                // UBOAT recalcule d'abord sa respiration vanilla.
+                // Ensuite seulement, le mod réduit le drain négatif si Mega Oxygène est actif.
+                // On ne touche pas aux valeurs nulles/positives utilisées pendant la surface/recharge.
                 ValidateOxygenBreathModifierMethod.Invoke(ship, null);
-                LongSubmergedRuntimeApplier.RestoreVanillaOxygenIfNeeded(ship);
-                Debug.Log("[LongSubmerged10x] Oxygen breath modifier recalculated after " + reason + ".");
+                LongSubmergedRuntimeApplier.ApplyOxygenBreathModifier(ship, reason);
+                Debug.Log("[LongSubmerged10x] Oxygen runtime breath modifier applied after " + reason + ".");
             }
             catch (Exception ex)
             {
@@ -2119,7 +1945,6 @@ namespace LongSubmerged10x
                 PatchEngine(ship.DieselEngine, reason + ".DieselEngine");
                 PatchEngine(ship.ElectricEngine, reason + ".ElectricEngine");
                 PatchShipVelocityCap(ship, reason, true);
-                ApplyPropellerSpeedMultiplier(ship, reason, true);
             }
             catch (Exception ex)
             {
@@ -2135,7 +1960,6 @@ namespace LongSubmerged10x
             try
             {
                 PatchShipVelocityCap(ship, reason, false);
-                ApplyPropellerSpeedMultiplier(ship, reason, false);
             }
             catch (Exception ex)
             {
@@ -2504,16 +2328,10 @@ namespace LongSubmerged10x
     {
         private static void Postfix(PlayerShip __instance)
         {
+            // DonJ : je maintiens la batterie ici, apres la frame du sous-marin.
+            // Je ne patche plus Resource.UpdateAmount en 1.4.6, parce que cette methode sert aussi
+            // a Oxygen pendant la recharge de surface et doit rester 100 % vanilla.
             LongSubmergedRuntimeApplier.ApplyBatteryResource(__instance, "PlayerShip.Update");
-        }
-    }
-
-    [HarmonyPatch(typeof(Resource), "UpdateAmount")]
-    internal static class ResourceUpdateAmountBatteryPatch
-    {
-        private static bool Prefix(Resource __instance)
-        {
-            return !LongSubmergedRuntimeApplier.TryUpdateBatteryResourceAmount(__instance, "Resource.UpdateAmount");
         }
     }
 
@@ -2554,27 +2372,6 @@ namespace LongSubmerged10x
 
             __result = 5f;
             return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(FlamesRegistry), "SpawnParticles", new Type[] { })]
-    internal static class FlamesRegistrySpawnParticlesPatch
-    {
-        private static bool Prefix(FlamesRegistry __instance)
-        {
-            return LongSubmergedRuntimeApplier.ShouldRunFlamesRegistrySpawnParticles(
-                __instance,
-                "FlamesRegistry.SpawnParticles"
-            );
-        }
-
-        private static Exception Finalizer(FlamesRegistry __instance, Exception __exception)
-        {
-            return LongSubmergedRuntimeApplier.HandleFlamesRegistrySpawnParticlesException(
-                __instance,
-                __exception,
-                "FlamesRegistry.SpawnParticles"
-            );
         }
     }
 
