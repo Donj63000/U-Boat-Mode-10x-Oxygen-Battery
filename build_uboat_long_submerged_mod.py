@@ -47,9 +47,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.4.2"
+MOD_VERSION = "1.4.3"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_2"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_3"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
@@ -1443,6 +1443,7 @@ using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Entities;
+using UBOAT.Game.Scene.Effects;
 using UBOAT.Game.Scene.Items;
 using UBOAT.Game.UI.Notifications;
 using UBOAT.Game.UI.Resources;
@@ -1528,7 +1529,8 @@ namespace LongSubmerged10x
             typeof(TorpedoDetonatePatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
             typeof(ResourceGuiUpdateDisplayedValuePatch),
-            typeof(DepletingResourceNotificationDoUpdatePatch)
+            typeof(DepletingResourceNotificationDoUpdatePatch),
+            typeof(FlamesRegistrySpawnParticlesPatch)
         };
 
         public static void PatchSafely(Harmony harmony)
@@ -2201,6 +2203,30 @@ namespace LongSubmerged10x
         private static readonly FieldInfo DepletingResourceNotificationResourceField =
             AccessTools.Field(typeof(DepletingResourceNotification), "resource");
 
+        // DonJ : UBOAT 2026.1 peut planter dans FlamesRegistry.SpawnParticles quand une flamme detachee
+        // essaye d'utiliser flamesEffect2 alors que le second systeme de particules n'existe pas encore.
+        // Je garde ces FieldInfo ici pour que le patch anti-crash reste reflechi, localise et facile a retirer.
+        private static readonly FieldInfo FlamesRegistrySmokeEffectField =
+            AccessTools.Field(typeof(FlamesRegistry), "smokeEffect");
+
+        private static readonly FieldInfo FlamesRegistryFlamesEffectField =
+            AccessTools.Field(typeof(FlamesRegistry), "flamesEffect");
+
+        private static readonly FieldInfo FlamesRegistryFlamesEffect2Field =
+            AccessTools.Field(typeof(FlamesRegistry), "flamesEffect2");
+
+        private static readonly FieldInfo FlamesRegistryFlamesSortedByZField =
+            AccessTools.Field(typeof(FlamesRegistry), "flamesSortedByZ");
+
+        private static readonly FieldInfo FlamesRegistryIsBurningField =
+            AccessTools.Field(typeof(FlamesRegistry), "isBurning");
+
+        private static readonly FieldInfo FlammableSurfaceIntensityField =
+            AccessTools.Field(typeof(FlammableSurface), "intensity");
+
+        private static readonly FieldInfo FlammableSurfaceIsDetachedField =
+            AccessTools.Field(typeof(FlammableSurface), "isDetached");
+
         private static readonly FieldInfo TorpedoHomingTargetField =
             AccessTools.Field(typeof(Torpedo), "homingTarget");
 
@@ -2246,6 +2272,8 @@ namespace LongSubmerged10x
         private static readonly HashSet<int> NuclearBatteryCapacityLoggedResourceIds = new HashSet<int>();
 
         private static readonly HashSet<int> BatteryTooltipRuntimeLoggedResourceIds = new HashSet<int>();
+
+        private static readonly HashSet<int> FlamesRegistryParticleGuardLoggedIds = new HashSet<int>();
 
         private static readonly Dictionary<Type, FieldInfo[]> GenericEnergyUsageFieldCache =
             new Dictionary<Type, FieldInfo[]>();
@@ -2507,6 +2535,161 @@ namespace LongSubmerged10x
             builder.Append("<line-height=50%>\n<line-height=100%>");
             builder.AppendLine("Mega Batterie : batterie infinie active.");
             return builder.ToString();
+        }
+
+        public static bool ShouldRunFlamesRegistrySpawnParticles(FlamesRegistry registry, string reason)
+        {
+            try
+            {
+                if (registry == null)
+                    return false;
+
+                ParticleSystem smokeEffect = GetParticleSystemFromField(registry, FlamesRegistrySmokeEffectField);
+                ParticleSystem flamesEffect = GetParticleSystemFromField(registry, FlamesRegistryFlamesEffectField);
+                if (smokeEffect == null || flamesEffect == null)
+                {
+                    LogFlamesRegistryParticleGuard(registry, reason, "effet principal feu/fumee manquant");
+                    return false;
+                }
+
+                ParticleSystem flamesEffect2 = GetParticleSystemFromField(registry, FlamesRegistryFlamesEffect2Field);
+                if (flamesEffect2 == null && HasDetachedActiveFlame(registry))
+                {
+                    LogFlamesRegistryParticleGuard(registry, reason, "flamesEffect2 manquant pour une flamme detachee");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // DonJ : si mon diagnostic reflechi echoue, je laisse UBOAT continuer.
+                // Le Finalizer juste dessous garde quand meme le filet de securite contre le NullReferenceException connu.
+                Debug.LogWarning("[LongSubmerged10x] FlamesRegistry particle guard diagnostic failed after " + reason + ": " + ex.GetType().Name + ": " + ex.Message);
+                return true;
+            }
+        }
+
+        public static Exception HandleFlamesRegistrySpawnParticlesException(FlamesRegistry registry, Exception exception, string reason)
+        {
+            if (exception == null)
+                return null;
+
+            if (exception is NullReferenceException)
+            {
+                LogFlamesRegistryParticleGuard(registry, reason, "NullReferenceException absorbe dans les particules feu/fumee", exception);
+                return null;
+            }
+
+            return exception;
+        }
+
+        private static ParticleSystem GetParticleSystemFromField(object target, FieldInfo field)
+        {
+            try
+            {
+                return target != null && field != null
+                    ? field.GetValue(target) as ParticleSystem
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool HasDetachedActiveFlame(FlamesRegistry registry)
+        {
+            FlammableSurface[] surfaces = GetFlammableSurfaces(registry);
+            if (surfaces == null || surfaces.Length == 0)
+                return false;
+
+            bool[] isBurning = GetBurningFlags(registry);
+            for (int i = 0; i < surfaces.Length; i++)
+            {
+                if (isBurning != null && i < isBurning.Length && !isBurning[i])
+                    continue;
+
+                FlammableSurface surface = surfaces[i];
+                if (surface == null)
+                    continue;
+
+                if (IsDetachedFlammableSurface(surface) && GetFlammableSurfaceIntensity(surface) > 0f)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static FlammableSurface[] GetFlammableSurfaces(FlamesRegistry registry)
+        {
+            try
+            {
+                return registry != null && FlamesRegistryFlamesSortedByZField != null
+                    ? FlamesRegistryFlamesSortedByZField.GetValue(registry) as FlammableSurface[]
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool[] GetBurningFlags(FlamesRegistry registry)
+        {
+            try
+            {
+                return registry != null && FlamesRegistryIsBurningField != null
+                    ? FlamesRegistryIsBurningField.GetValue(registry) as bool[]
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsDetachedFlammableSurface(FlammableSurface surface)
+        {
+            try
+            {
+                return surface != null
+                    && FlammableSurfaceIsDetachedField != null
+                    && (bool)FlammableSurfaceIsDetachedField.GetValue(surface);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static float GetFlammableSurfaceIntensity(FlammableSurface surface)
+        {
+            try
+            {
+                if (surface == null || FlammableSurfaceIntensityField == null)
+                    return 0f;
+
+                object value = FlammableSurfaceIntensityField.GetValue(surface);
+                return value is float ? (float)value : 0f;
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        private static void LogFlamesRegistryParticleGuard(FlamesRegistry registry, string reason, string detail, Exception exception = null)
+        {
+            int registryId = registry != null ? RuntimeHelpers.GetHashCode(registry) : 0;
+            if (!FlamesRegistryParticleGuardLoggedIds.Add(registryId))
+                return;
+
+            string message = "[LongSubmerged10x] FlamesRegistry particle guard prevented crash after " + reason + ": " + detail + ".";
+            if (exception != null)
+                message += " " + exception.GetType().Name + ": " + exception.Message;
+
+            Debug.LogWarning(message);
         }
 
         private static void FillBatteryToCapacity(Resource energy, string reason)
@@ -3810,6 +3993,27 @@ namespace LongSubmerged10x
         }
     }
 
+    [HarmonyPatch(typeof(FlamesRegistry), "SpawnParticles", new Type[] { })]
+    internal static class FlamesRegistrySpawnParticlesPatch
+    {
+        private static bool Prefix(FlamesRegistry __instance)
+        {
+            return LongSubmergedRuntimeApplier.ShouldRunFlamesRegistrySpawnParticles(
+                __instance,
+                "FlamesRegistry.SpawnParticles"
+            );
+        }
+
+        private static Exception Finalizer(FlamesRegistry __instance, Exception __exception)
+        {
+            return LongSubmergedRuntimeApplier.HandleFlamesRegistrySpawnParticlesException(
+                __instance,
+                __exception,
+                "FlamesRegistry.SpawnParticles"
+            );
+        }
+    }
+
     [HarmonyPatch(typeof(PlayerShip), "ValidateTargetVelocity")]
     internal static class PlayerShipValidateTargetVelocityPatch
     {
@@ -4057,7 +4261,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
-        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles et menu",
+        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles, menu et garde-fou feu/fumee",
         "",
         "Installation :",
         "1. Fermer UBOAT.",
