@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.3.8
+Long Submerged 10x+ v1.3.9
 
 Paramètres utilisés :
 - Air / atmosphère de base : capacité x1800
@@ -12,7 +12,7 @@ Paramètres utilisés :
 - Deux derniers crans avant : carburant x8
 - Vitesse max sous-marin joueur : 45 km/h
 - Sliders F10 : Batterie, Oxygene, SuperVitesse et Torpilles de 1 a 100
-- Slider Batterie : 1 = vanilla, 100 = drain electrique coupe et batterie maintenue au maximum
+- Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie
 - Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours
 - Slider SuperVitesse : 1 = vanilla, 3.5 = defaut actuel, 100 = extreme
 - Slider Torpilles : 1 = vanilla, 10 = defaut actuel, 100 = extreme
@@ -29,7 +29,7 @@ Paramètres utilisés :
 - Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_3_8, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles et menu
+- Patch runtime : LongSubmerged10xPatch_1_3_9, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles et menu
 
 Installation :
 1. Fermer UBOAT.
@@ -43,7 +43,7 @@ Notes :
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.
 - Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif.
-- Mega Batterie est reglable en runtime ; 1 revient vanilla, 100 coupe le drain electrique positif.
+- Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.
 - Les sliders F10 sont persistants et s'appliquent directement en partie avec Reappliquer maintenant ou au changement de valeur.
 - Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.
 - Les crans rapides consomment plus de carburant pour garder une autonomie logique.

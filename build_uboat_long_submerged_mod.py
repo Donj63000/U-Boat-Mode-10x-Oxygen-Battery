@@ -47,9 +47,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.3.8"
+MOD_VERSION = "1.3.9"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_3_8"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_3_9"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
@@ -1479,7 +1479,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 4;
+        private const int RuntimeSettingsVersion = 5;
         public const float MinRuntimeFactor = 1f;
         public const float MaxRuntimeFactor = 100f;
         private const bool DefaultMegaBattery = true;
@@ -2193,7 +2193,7 @@ namespace LongSubmerged10x
             FillBatteryToCapacity(ship.Energy, reason);
         }
 
-        public static bool TryUpdateBatteryResourceAmount(Resource resource, double time, double sandboxTime, string reason)
+        public static bool TryUpdateBatteryResourceAmount(Resource resource, string reason)
         {
             try
             {
@@ -2244,14 +2244,11 @@ namespace LongSubmerged10x
             ApplyBatteryGainParameter(energy.Gain, factor);
             ApplyBatteryGainParameter(energy.GainSandboxTimeScale, factor);
 
-            if (factor > LongSubmergedRuntimeSettings.MinRuntimeFactor + 0.0001f)
+            if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor - 0.0001f)
             {
                 int resourceId = RuntimeHelpers.GetHashCode(energy);
                 if (BatteryGainRuntimeLoggedResourceIds.Add(resourceId))
-                {
-                    string factorText = factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor ? "inf" : "x" + factor.ToString("0");
-                    Debug.Log("[LongSubmerged10x] Mega Batterie gain runtime active " + factorText + " after " + reason + ".");
-                }
+                    Debug.Log("[LongSubmerged10x] Mega Batterie infinite gain guard active after " + reason + ".");
             }
         }
 
@@ -2280,8 +2277,11 @@ namespace LongSubmerged10x
 
             float baseValue = parameter.GetValueExcludingModifier(RuntimeBatteryGainModifierName);
             float desiredValue = baseValue;
-            if (factor > LongSubmergedRuntimeSettings.MinRuntimeFactor + 0.0001f && baseValue < 0f)
-                desiredValue = factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor ? 0f : baseValue / factor;
+
+            // Le slider Batterie regle deja la duree via la capacite effective.
+            // Ici on ne touche au gain global que pour le cran 100/infini, afin d'eviter un double xN.
+            if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor - 0.0001f && baseValue < 0f)
+                desiredValue = 0f;
 
             float delta = desiredValue - baseValue;
             if (Math.Abs(data.DeltaModifier.Value - delta) > 0.000001f)
@@ -2611,8 +2611,12 @@ namespace LongSubmerged10x
 
         private static float GetEffectiveBatteryEnergyUsageScale()
         {
-            // La je restaure seulement le fallback XLSX x0.1 vers une base vanilla.
-            // Le vrai slider Batterie est applique dans Resource.UpdateAmount pour couvrir tous les consommateurs.
+            // Pour les valeurs finies, la duree est pilotee par la capacite :
+            // 1 = vanilla, 4 = x4, 99 = x99. On restaure donc le fallback XLSX x0.1 vers vanilla.
+            // Au cran 100, on coupe explicitement les consommateurs electriques pour que l'UI et le jeu voient l'infini.
+            if (IsInfiniteBatteryRuntimeActive())
+                return 0f;
+
             return EnergyUsageVanillaRestoreScale;
         }
 
@@ -2657,7 +2661,13 @@ namespace LongSubmerged10x
 
         private static void ApplyEnergyUsageParameter(Parameter parameter)
         {
-            if (parameter == null || parameter.Value <= 0f)
+            if (parameter == null)
+                return;
+
+            // Ne pas tester parameter.Value ici : en mode infini notre scale vaut 0.
+            // Quand le joueur redescend le slider, il faut pouvoir restaurer le drain vanilla.
+            float baseValue = parameter.GetValueExcludingModifier(RuntimeScaleModifierName);
+            if (baseValue <= 0f)
                 return;
 
             SetScale(
@@ -3247,9 +3257,9 @@ namespace LongSubmerged10x
     [HarmonyPatch(typeof(Resource), "UpdateAmount")]
     internal static class ResourceUpdateAmountBatteryPatch
     {
-        private static bool Prefix(Resource __instance, double __0, double __1)
+        private static bool Prefix(Resource __instance)
         {
-            return !LongSubmergedRuntimeApplier.TryUpdateBatteryResourceAmount(__instance, __0, __1, "Resource.UpdateAmount");
+            return !LongSubmergedRuntimeApplier.TryUpdateBatteryResourceAmount(__instance, "Resource.UpdateAmount");
         }
     }
 
@@ -3483,7 +3493,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
         "- Sliders F10 : Batterie, Oxygene, SuperVitesse et Torpilles de 1 a 100",
-        "- Slider Batterie : 1 = vanilla, 100 = drain electrique coupe et batterie maintenue au maximum",
+        "- Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie",
         "- Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours",
         f"- Slider SuperVitesse : 1 = vanilla, {args.fast_speed_factor:g} = defaut actuel, 100 = extreme",
         f"- Slider Torpilles : 1 = vanilla, {args.torpedo_damage_factor:g} = defaut actuel, 100 = extreme",
@@ -3514,7 +3524,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule l'oxygène sur les sauvegardes existantes qui gardaient l'ancien -4/min.",
         "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif.",
-        "- Mega Batterie est reglable en runtime ; 1 revient vanilla, 100 coupe le drain electrique positif.",
+        "- Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.",
         "- Les sliders F10 sont persistants et s'appliquent directement en partie avec Reappliquer maintenant ou au changement de valeur.",
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
         "- Les crans rapides consomment plus de carburant pour garder une autonomie logique.",
