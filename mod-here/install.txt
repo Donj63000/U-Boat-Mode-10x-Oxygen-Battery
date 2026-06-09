@@ -1,0 +1,62 @@
+LONG SUBMERGED 10x+ - EASY INSTALL
+
+This folder contains the ready-to-play UBOAT mod.
+You do not need Python, Visual Studio, or any modding tool.
+
+WHAT TO COPY
+
+Copy this whole folder:
+
+LongSubmerged10x
+
+WHERE TO COPY IT
+
+Paste it into your UBOAT Mods folder:
+
+%USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\
+
+The final path should look like this:
+
+%USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\LongSubmerged10x\
+
+STEP BY STEP
+
+1. Close UBOAT completely.
+2. Open the folder named mod-here.
+3. Copy the folder named LongSubmerged10x.
+4. Paste it into:
+   %USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\
+5. Start the UBOAT launcher.
+6. Enable Long Submerged 10x+ in the mod list.
+7. Put it after other mods that change General.xlsx, Entities.xlsx, or U-boat.xlsx.
+8. Start the game and load your save.
+
+IN GAME
+
+Press F10 to open the mod menu.
+
+Default settings:
+
+- Battery: 100, infinite battery hold enabled.
+- Oxygen: 100, about 90 days underwater.
+- SuperSpeed: 3.5, boosted fast gears.
+- Torpedoes: 10, stronger explosions and better locked-target behavior.
+
+Use the Default button in the F10 menu if you want to restore the shipped profile.
+
+TROUBLESHOOTING
+
+If F10 does not open the menu:
+
+1. Close UBOAT completely.
+2. Delete this folder if it exists:
+   %USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Temp\
+3. Start UBOAT again.
+
+If the mod still does not work, make sure the folder is not nested like this:
+
+Mods\LongSubmerged10x\LongSubmerged10x\
+
+It must be:
+
+Mods\LongSubmerged10x\

@@ -1,102 +1,135 @@
-# UBOAT - Long Submerged 10x+
+# Long Submerged 10x+ for UBOAT
 
-Mod pour **UBOAT 2026.1 Patch 20** qui permet de rester immergé beaucoup plus longtemps sans casser la batterie ni la ventilation.
+![Long Submerged 10x+ UBOAT mod banner](Images%20GITHUB/affiche1.png)
 
-## Ce que fait le mod
+An unofficial gameplay mod for **UBOAT 2026.1 Patch 20** focused on long underwater patrols, runtime tuning, boosted fast travel, and stronger torpedoes.
 
-- Batterie beaucoup plus longue :
-  - capacité des accumulateurs multipliée par 10 ;
-  - consommation électrique des équipements principaux réduite ;
-  - recharge/production batterie laissée vanilla pour éviter une recharge instantanée.
-- Air / oxygène beaucoup plus long :
-  - `Oxygen Consumption Per Character` est divisé par 125 ;
-  - le mod vise environ 7 à 8 jours d'air sur une sauvegarde déjà en cours.
-- Vitesse rapide améliorée :
-  - les deux crans avant les plus rapides renforcent les vitesses attendues et la propulsion réelle ;
-  - le plafond runtime et datasheet des sous-marins joueur est relevé à 45 km/h ;
-  - la consommation carburant des deux crans rapides est augmentée pour garder une autonomie logique ;
-  - les Type IX officiels du DLC Steam sont inclus quand le DLC est installé ;
-  - les vitesses lentes et mi-vitesse restent vanilla pour garder la manoeuvre fine.
-- Discipline et fatigue adaptées à l'immersion longue :
-  - les pertes sous l'eau sont réduites proportionnellement.
-- Ventilation laissée vanilla :
-  - la ligne `Ventilation` n'est plus modifiée par défaut pour éviter les bugs vus dans les essais précédents.
-- Patch runtime AirFix :
-  - UBOAT garde parfois l'ancien modifier d'oxygène sur une sauvegarde existante ;
-  - le patch Harmony force le recalcul de `OxygenBreathModifier` après chargement, `Awake`, ajout ou retrait d'équipage ;
-  - le patch Harmony corrige aussi le plafond de vitesse, les propulseurs et les consommations rapides sur sauvegarde existante.
+The ready-to-install player package is in [`mod-here/`](mod-here/).
 
-## Installation rapide
+## Main Features
 
-1. Fermer complètement UBOAT.
-2. Télécharger ce dépôt en ZIP ou cloner le dépôt.
-3. Copier le dossier `LongSubmerged10x` dans :
+- **Infinite battery by default**
+  - The F10 menu ships with `Battery = 100`.
+  - At `100`, the runtime cuts positive electrical drain and keeps the submarine `Energy` resource charged.
+  - The slider remains adjustable from `1` to `100`, where `1` restores normal behavior.
+- **Long underwater oxygen**
+  - Default oxygen profile targets about **90 days** underwater.
+  - The F10 `Oxygen` slider can be adjusted from normal behavior to the full long-patrol profile.
+- **F10 runtime menu**
+  - Toggle and tune `Mega Batterie`, `Mega Oxygene`, `SuperVitesse`, and `Mega Torpilles`.
+  - Sliders are saved with `PlayerPrefs`.
+  - `Default` restores the shipped profile.
+  - `Reapply now` applies values immediately during the current game.
+- **SuperSpeed**
+  - Boosts the two fastest forward gears.
+  - Default speed factor is `3.5`.
+  - The F10 slider can go from `1` to `100`.
+- **Mega Torpedoes**
+  - Default torpedo factor is `10`.
+  - Damage, crew damage, blast radius, visual effect radius, and explosion intensity are runtime-scaled.
+  - Torpedo reliability failures are disabled while Mega Torpedoes are active.
+  - Locked-target torpedoes receive runtime guidance assistance.
+
+![Long Submerged 10x+ feature overview](Images%20GITHUB/affiche2.png)
+
+## Easy Install
+
+For normal players, use the packaged mod folder:
+
+```text
+mod-here/
+```
+
+Copy this folder:
+
+```text
+mod-here/LongSubmerged10x
+```
+
+Into your UBOAT mods directory:
 
 ```text
 %USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\
 ```
 
-4. Lancer UBOAT.
-5. Activer **Long Submerged 10x+** dans le launcher.
-6. Le placer après les autres mods qui modifient `General.xlsx`, `Entities.xlsx` ou `U-boat.xlsx`.
-7. Charger une sauvegarde existante ou lancer une nouvelle carrière.
+The final path should be:
 
-Après le premier lancement, UBOAT compile les fichiers du mod et régénère son cache `Data Sheets`.
+```text
+%USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\LongSubmerged10x\
+```
 
-## Test en jeu
+Then start the UBOAT launcher, enable **Long Submerged 10x+**, and place it after other mods that edit `General.xlsx`, `Entities.xlsx`, or `U-boat.xlsx`.
 
-Pour vérifier que le mod fonctionne :
+See [`mod-here/install.txt`](mod-here/install.txt) for a step-by-step beginner install guide.
 
-1. Charger une partie.
-2. Plonger avec une qualité d'air proche de 100 %.
-3. Ouvrir le tooltip de qualité de l'air.
-4. La durée ne doit plus rester autour de 13 heures.
-5. Si le tooltip affiche encore `Équipage -4/min`, fermer UBOAT, vérifier que le mod est bien activé et placé après les autres mods, puis relancer.
+## In Game
 
-## Générer le mod depuis les sources
+Press `F10` after loading a save.
 
-Le dossier prêt à installer est déjà inclus dans `LongSubmerged10x/`. Pour le régénérer depuis les fichiers vanilla de ton installation UBOAT :
+Default shipped profile:
+
+- `Battery`: `100`, infinite battery hold.
+- `Oxygen`: `100`, about 90 days underwater.
+- `SuperSpeed`: `3.5`, boosted fast gears.
+- `Torpedoes`: `10`, stronger explosions and better locked-target behavior.
+
+Press `Escape` or `F10` to close the menu.
+
+## Mod Package
+
+The active mod folder contains:
+
+```text
+LongSubmerged10x/
+  Manifest.json
+  README_LongSubmerged10x.txt
+  LongSubmerged10x_generation_report.txt
+  Source/
+    LongSubmergedRuntimePatch.cs
+  Data Sheets/
+    General.xlsx
+    Realistic Travel/General.xlsx
+    Entities.xlsx
+```
+
+UBOAT compiles the runtime patch when the mod is loaded.
+
+## Developer Build
+
+The generator is included for maintainers:
 
 ```powershell
 python -m pip install -r requirements.txt
 python .\build_uboat_long_submerged_mod.py --uboat "C:\Program Files (x86)\Steam\steamapps\common\UBOAT" --force --clear-cache
 ```
 
-Options principales :
+Important defaults:
 
-- `--oxygen-consumption-factor 125` : divise la consommation d'oxygène par 125.
-- `--battery-capacity-factor 10` : multiplie les accumulateurs par 10.
-- `--energy-usage-factor 0.1` : réduit seulement la consommation électrique positive des équipements.
-- Les lignes `EnergyUsage` négatives, utilisées pour la recharge/production batterie, restent vanilla.
-- `--fast-speed-factor 3.5` : renforce la vitesse attendue et la propulsion des crans rapides de marche avant.
-- `--fast-speed-fuel-factor 8` : augmente la consommation carburant des crans rapides.
-- `--fast-speed-top-gears 2` : applique le boost uniquement aux deux derniers crans avant.
-- `--player-submarine-max-speed 45` : relève le plafond des sous-marins joueur à 45 km/h.
-- Le générateur lit aussi `UBOAT_Data/StreamingAssets/Packages/uboat.dlc.type-ix/Data Sheets` quand le DLC Type IX officiel est présent.
-- `--clear-cache` : vide le cache local UBOAT `Data Sheets` pour forcer la recompilation.
+- `--oxygen-consumption-factor 1800`
+- `--battery-capacity-factor 10`
+- `--energy-usage-factor 0.1`
+- `--fast-speed-factor 3.5`
+- `--fast-speed-fuel-factor 8`
+- `--player-submarine-max-speed 45`
+- `--torpedo-damage-factor 10`
+- `--torpedo-explosion-radius-factor 10`
+- `--torpedo-explosion-intensity-factor 10`
 
-## Structure du dépôt
+## Validation
 
-- `LongSubmerged10x/` : mod prêt à installer.
-- `build_uboat_long_submerged_mod.py` : générateur officiel actuel.
-- `tests/` : tests unitaires du générateur.
-- `tools/AssemblyInspector/` : outil local d'inspection IL utilisé pour comprendre le chargement des datasheets et le recalcul d'oxygène.
+Current checks used during development:
 
-## Vérifications effectuées
+```powershell
+python -m unittest discover -s tests -v
+python -m py_compile .\build_uboat_long_submerged_mod.py .\tests\test_long_submerged_generator.py
+git diff --check
+```
 
-- Tests unitaires Python : `python -m unittest discover -s tests -v`.
-- Compilation du patch runtime C# contre les DLL UBOAT :
-  - `com.uboat.game.dll`
-  - `0Harmony.dll`
-  - `UnityEngine.dll`
-  - `UnityEngine.CoreModule.dll`
-- Vérification des valeurs générées dans :
-  - `Data Sheets/General.xlsx`
-  - `Data Sheets/Realistic Travel/General.xlsx`
-  - `Data Sheets/Entities.xlsx`
+The generated runtime patch is also compiled manually against UBOAT and Unity managed DLLs, including `UnityEngine.UI.dll`, before release.
 
 ## Notes
 
-Ce mod est prévu pour **UBOAT 2026.1 Patch 20**. Il peut fonctionner sur d'autres versions 2026.1, mais les datasheets et les assemblies du jeu peuvent changer après une mise à jour.
-
-Si un autre mod touche l'air, la batterie ou les mêmes fichiers datasheets, l'ordre de chargement est important.
+- This is an unofficial mod.
+- The mod is designed for **UBOAT 2026.1 Patch 20**.
+- Existing saves are supported after a full game restart.
+- If the F10 menu does not open, fully close UBOAT and delete the UBOAT local `Temp` cache before relaunching.
