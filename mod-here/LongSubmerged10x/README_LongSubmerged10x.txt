@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.3.9
+Long Submerged 10x+ v1.4.1
 
 Paramètres utilisés :
 - Air / atmosphère de base : capacité x1800
@@ -29,7 +29,7 @@ Paramètres utilisés :
 - Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_3_9, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles et menu
+- Patch runtime : LongSubmerged10xPatch_1_4_1, air apres chargement, plafond vitesse, propulseurs, carburant rapide, torpilles et menu
 
 Installation :
 1. Fermer UBOAT.

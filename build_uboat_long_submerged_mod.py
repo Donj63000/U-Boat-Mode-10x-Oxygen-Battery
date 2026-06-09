@@ -47,9 +47,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.3.9"
+MOD_VERSION = "1.4.1"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_3_9"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_1"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
@@ -1438,11 +1438,14 @@ def write_runtime_patch_source(mod_dir: Path, args: argparse.Namespace, report: 
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Entities;
 using UBOAT.Game.Scene.Items;
+using UBOAT.Game.UI.Notifications;
+using UBOAT.Game.UI.Resources;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -1462,16 +1465,89 @@ namespace LongSubmerged10x
         {
             try
             {
-                // La je charge mes reglages runtime avant les patches pour que le menu garde mes choix.
+                // La je charge les reglages et le menu avant Harmony.
+                // Comme ca le garde-fou batterie tourne meme si un patch Harmony ne passe pas.
                 LongSubmergedRuntimeSettings.Load();
                 LongSubmergedMenuController.Ensure();
-                new Harmony("donj.longsubmerged10x.airfix").PatchAll();
-                LongSubmergedRuntimeApplier.ApplyAll("mod loaded");
-                Debug.Log("[LongSubmerged10x] Runtime patch loaded v" + RuntimeVersion + ". F10 ouvre le menu Long Submerged.");
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
+            }
+
+            try
+            {
+                new Harmony("donj.longsubmerged10x.airfix").PatchAll();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Harmony PatchAll a echoue, mais le runtime direct batterie continue: " + ex.GetType().Name + ": " + ex.Message);
+                Debug.LogException(ex);
+            }
+
+            try
+            {
+                LongSubmergedRuntimeApplier.ApplyAll("mod loaded");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+
+            Debug.Log("[LongSubmerged10x] Runtime patch loaded v" + RuntimeVersion + ". F10 ouvre le menu Long Submerged.");
+        }
+    }
+
+    internal static class LongSubmergedRuntimePatcher
+    {
+        private static readonly Type[] PatchTypes = new Type[]
+        {
+            typeof(PlayerShipAwakePatch),
+            typeof(PlayerShipOnAfterDeserializePatch),
+            typeof(PlayerShipUpdatePatch),
+            typeof(ResourceUpdateAmountBatteryPatch),
+            typeof(PlayerShipValidateTargetVelocityPatch),
+            typeof(PlayerShipSavesManagerOnLoadedPatch),
+            typeof(PlayerShipCrewAddedPatch),
+            typeof(PlayerShipCrewRemovedPatch),
+            typeof(PlayerShipEngineAwakePatch),
+            typeof(PlayerShipEngineOnAfterDeserializePatch),
+            typeof(PlayerShipEngineSavesManagerOnLoadedPatch),
+            typeof(AccumulatorsUpgradeStartPatch),
+            typeof(DivingPlanesStationAwakePatch),
+            typeof(DivingPlanesStationUpdateModifiersPatch),
+            typeof(AirCompressorOnEnablePatch),
+            typeof(AirCompressorEnergyUsageChangedPatch),
+            typeof(GyrocompassApplyModifiersPatch),
+            typeof(TrimPumpOnEnablePatch),
+            typeof(VentilationOnEnablePatch),
+            typeof(StoredTorpedoStartPatch),
+            typeof(StoredTorpedoApplyWarmUpModifierPatch),
+            typeof(TorpedoAwakePatch),
+            typeof(TorpedoFixedUpdatePatch),
+            typeof(TorpedoDetonatePatch),
+            typeof(ResourceGuiGetTooltipContentsPatch),
+            typeof(ResourceGuiUpdateDisplayedValuePatch),
+            typeof(DepletingResourceNotificationDoUpdatePatch)
+        };
+
+        public static void PatchSafely(Harmony harmony)
+        {
+            if (harmony == null)
+                return;
+
+            foreach (Type patchType in PatchTypes)
+            {
+                try
+                {
+                    harmony.CreateClassProcessor(patchType).Patch();
+                    Debug.Log("[LongSubmerged10x] Harmony patch active: " + patchType.Name + ".");
+                }
+                catch (Exception ex)
+                {
+                    // Une seule methode renomme dans UBOAT ne doit plus neutraliser toute la batterie infinie.
+                    Debug.LogWarning("[LongSubmerged10x] Harmony patch skipped: " + patchType.Name + " -> " + ex.GetType().Name + ": " + ex.Message);
+                }
             }
         }
     }
@@ -1479,7 +1555,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 5;
+        private const int RuntimeSettingsVersion = 7;
         public const float MinRuntimeFactor = 1f;
         public const float MaxRuntimeFactor = 100f;
         private const bool DefaultMegaBattery = true;
@@ -1569,6 +1645,7 @@ namespace LongSubmerged10x
     {
         private const KeyCode MenuKey = KeyCode.F10;
         private const int CanvasSortingOrder = 32000;
+        private const float BatteryMaintenanceIntervalSeconds = 0.20f;
         private static LongSubmergedMenuController instance;
         private static Font cachedFont;
 
@@ -1587,6 +1664,7 @@ namespace LongSubmerged10x
         private Text torpedoFactorValueText;
         private bool visible;
         private bool suppressToggleEvents;
+        private float nextBatteryMaintenanceTime;
         private bool cursorCaptured;
         private bool previousCursorVisible;
         private CursorLockMode previousCursorLockState;
@@ -1633,6 +1711,21 @@ namespace LongSubmerged10x
 
             if (visible && Input.GetKeyDown(KeyCode.Escape))
                 SetVisible(false, "Escape");
+
+            RunBatteryMaintenanceTick();
+        }
+
+        private void RunBatteryMaintenanceTick()
+        {
+            if (!LongSubmergedRuntimeSettings.MegaBattery)
+                return;
+
+            float now = Time.unscaledTime;
+            if (now < nextBatteryMaintenanceTime)
+                return;
+
+            nextBatteryMaintenanceTime = now + BatteryMaintenanceIntervalSeconds;
+            LongSubmergedRuntimeApplier.MaintainBatteryRuntime("runtime heartbeat");
         }
 
         private void EnsureUi()
@@ -2065,6 +2158,8 @@ namespace LongSubmerged10x
         private const float TorpedoGuidanceDetonationRadiusRatio = 0.75f;
         private const string RuntimeScaleModifierName = "LongSubmerged10x Runtime Toggle";
         private const string RuntimeBatteryGainModifierName = "LongSubmerged10x Battery Gain Runtime";
+        private const string RuntimeNuclearBatteryCapacityModifierName = "LongSubmerged10x Nuclear Battery Capacity Runtime";
+        private const float NuclearBatteryCapacityFloor = 1000000000f;
 
         private static readonly FieldInfo OxygenBreathModifierField =
             AccessTools.Field(typeof(PlayerShip), "oxygenBreathModifier");
@@ -2083,6 +2178,12 @@ namespace LongSubmerged10x
 
         private static readonly FieldInfo VentilationEnergyModifierField =
             AccessTools.Field(typeof(Ventilation), "energyModifier");
+
+        private static readonly FieldInfo ResourceGuiResourceField =
+            AccessTools.Field(typeof(ResourceGUI), "resource");
+
+        private static readonly FieldInfo DepletingResourceNotificationResourceField =
+            AccessTools.Field(typeof(DepletingResourceNotification), "resource");
 
         private static readonly FieldInfo TorpedoHomingTargetField =
             AccessTools.Field(typeof(Torpedo), "homingTarget");
@@ -2114,6 +2215,9 @@ namespace LongSubmerged10x
         private static readonly ConditionalWeakTable<Parameter, ParameterDeltaPatchData> BatteryGainDeltaData =
             new ConditionalWeakTable<Parameter, ParameterDeltaPatchData>();
 
+        private static readonly ConditionalWeakTable<Parameter, ParameterDeltaPatchData> NuclearBatteryCapacityDeltaData =
+            new ConditionalWeakTable<Parameter, ParameterDeltaPatchData>();
+
         private static readonly ConditionalWeakTable<Torpedo, TorpedoGuidancePatchData> TorpedoGuidanceData =
             new ConditionalWeakTable<Torpedo, TorpedoGuidancePatchData>();
 
@@ -2121,13 +2225,55 @@ namespace LongSubmerged10x
 
         private static readonly HashSet<int> BatteryGainRuntimeLoggedResourceIds = new HashSet<int>();
 
+        private static readonly HashSet<int> NuclearBatteryCapacityLoggedResourceIds = new HashSet<int>();
+
+        private static readonly HashSet<int> BatteryTooltipRuntimeLoggedResourceIds = new HashSet<int>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> GenericEnergyUsageFieldCache =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> GenericParameterCollectionFieldCache =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> GenericEnergyModifierFieldCache =
+            new Dictionary<Type, FieldInfo[]>();
+
         public static void ApplyAll(string reason)
         {
             try
             {
                 LongSubmergedMenuController.Ensure();
                 ApplyPlayerShip(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason);
+                ApplyBatteryConsumers(reason);
 
+                foreach (StoredTorpedo item in UnityEngine.Object.FindObjectsOfType<StoredTorpedo>())
+                    ApplyStoredTorpedo(item, reason + ".StoredTorpedo");
+
+                foreach (Torpedo item in UnityEngine.Object.FindObjectsOfType<Torpedo>())
+                    ApplyLaunchedTorpedo(item, reason + ".Torpedo");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void MaintainBatteryRuntime(string reason)
+        {
+            try
+            {
+                ApplyBatteryResource(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void ApplyBatteryConsumers(string reason)
+        {
+            try
+            {
                 foreach (AccumulatorsUpgrade item in UnityEngine.Object.FindObjectsOfType<AccumulatorsUpgrade>())
                     ApplyBatteryObject(item, reason + ".AccumulatorsUpgrade");
 
@@ -2152,11 +2298,7 @@ namespace LongSubmerged10x
                 foreach (Equipment item in UnityEngine.Object.FindObjectsOfType<Equipment>())
                     ApplyBatteryEquipment(item, reason + ".Equipment");
 
-                foreach (StoredTorpedo item in UnityEngine.Object.FindObjectsOfType<StoredTorpedo>())
-                    ApplyStoredTorpedo(item, reason + ".StoredTorpedo");
-
-                foreach (Torpedo item in UnityEngine.Object.FindObjectsOfType<Torpedo>())
-                    ApplyLaunchedTorpedo(item, reason + ".Torpedo");
+                ApplyGenericBatteryConsumers(reason + ".Generic");
             }
             catch (Exception ex)
             {
@@ -2181,16 +2323,15 @@ namespace LongSubmerged10x
             if (ship == null)
                 return;
 
-            ApplyBatteryGainModifiers(ship.Energy, reason);
-            MaintainInfiniteBatteryCharge(ship, reason);
+            ApplyBatteryRuntimeToResource(ship.Energy, reason);
         }
 
         public static void MaintainInfiniteBatteryCharge(PlayerShip ship, string reason)
         {
-            if (ship == null || !IsInfiniteBatteryRuntimeActive())
+            if (ship == null)
                 return;
 
-            FillBatteryToCapacity(ship.Energy, reason);
+            ApplyBatteryRuntimeToResource(ship.Energy, reason);
         }
 
         public static bool TryUpdateBatteryResourceAmount(Resource resource, string reason)
@@ -2200,12 +2341,82 @@ namespace LongSubmerged10x
                 if (!IsPlayerShipEnergyResource(resource))
                     return false;
 
-                ApplyBatteryGainModifiers(resource, reason);
+                ApplyBatteryRuntimeToResource(resource, reason);
 
-                if (!IsInfiniteBatteryRuntimeActive())
+                // En mode infini on bloque l'UpdateAmount vanilla : la ressource reste pleine.
+                return IsInfiniteBatteryRuntimeActive();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                return false;
+            }
+        }
+
+        private static void ApplyBatteryRuntimeToResource(Resource energy, string reason)
+        {
+            if (energy == null)
+                return;
+
+            ApplyNuclearBatteryCapacityOverride(energy, reason);
+            ApplyBatteryGainModifiers(energy, reason);
+
+            if (IsInfiniteBatteryRuntimeActive())
+                FillBatteryToCapacity(energy, reason);
+            else
+                ClampBatteryAmountToCapacity(energy);
+        }
+
+        private static void ApplyNuclearBatteryCapacityOverride(Resource energy, string reason)
+        {
+            if (energy == null || energy.Capacity == null)
+                return;
+
+            float baseCapacity = energy.Capacity.GetValueExcludingModifier(RuntimeNuclearBatteryCapacityModifierName);
+            float targetCapacity = baseCapacity;
+
+            if (IsInfiniteBatteryRuntimeActive())
+                targetCapacity = Math.Max(baseCapacity, NuclearBatteryCapacityFloor);
+
+            float delta = targetCapacity - baseCapacity;
+            SetDelta(
+                energy.Capacity,
+                NuclearBatteryCapacityDeltaData,
+                RuntimeNuclearBatteryCapacityModifierName,
+                delta
+            );
+
+            if (IsInfiniteBatteryRuntimeActive())
+            {
+                int resourceId = RuntimeHelpers.GetHashCode(energy);
+                if (NuclearBatteryCapacityLoggedResourceIds.Add(resourceId))
+                    Debug.Log("[LongSubmerged10x] Mega Batterie nuclear capacity active after " + reason + ".");
+            }
+        }
+
+        private static void ClampBatteryAmountToCapacity(Resource energy)
+        {
+            if (energy == null)
+                return;
+
+            double capacity = GetResourceCapacity(energy);
+            if (!IsUsableResourceValue(capacity) || capacity <= 0.0)
+                return;
+
+            if (energy.Amount > capacity)
+                energy.Amount = capacity;
+            else if (energy.Amount < 0.0)
+                energy.Amount = 0.0;
+        }
+
+        public static bool TryMaintainBatteryResource(Resource resource, string reason)
+        {
+            try
+            {
+                if (!IsPlayerShipEnergyResource(resource))
                     return false;
 
-                FillBatteryToCapacity(resource, reason);
+                ApplyBatteryRuntimeToResource(resource, reason);
                 return true;
             }
             catch (Exception ex)
@@ -2213,6 +2424,61 @@ namespace LongSubmerged10x
                 Debug.LogException(ex);
                 return false;
             }
+        }
+
+        public static Resource GetResourceFromGui(ResourceGUI gui)
+        {
+            try
+            {
+                return gui != null && ResourceGuiResourceField != null
+                    ? ResourceGuiResourceField.GetValue(gui) as Resource
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static Resource GetResourceFromDepletingNotification(DepletingResourceNotification notification)
+        {
+            try
+            {
+                return notification != null && DepletingResourceNotificationResourceField != null
+                    ? DepletingResourceNotificationResourceField.GetValue(notification) as Resource
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static bool ShouldSuppressBatteryDepletionUi(Resource resource, string reason)
+        {
+            if (!IsInfiniteBatteryRuntimeActive())
+                return false;
+
+            if (!TryMaintainBatteryResource(resource, reason))
+                return false;
+
+            int resourceId = RuntimeHelpers.GetHashCode(resource);
+            if (BatteryTooltipRuntimeLoggedResourceIds.Add(resourceId))
+                Debug.Log("[LongSubmerged10x] Mega Batterie depletion UI guard active after " + reason + ".");
+
+            return true;
+        }
+
+        public static string BuildInfiniteBatteryTooltip(Resource resource)
+        {
+            if (resource == null)
+                return string.Empty;
+
+            StringBuilder builder = new StringBuilder();
+            resource.PrintInfo(builder, 1, 1f, "per min", string.Empty, false);
+            builder.Append("<line-height=50%>\n<line-height=100%>");
+            builder.AppendLine("Mega Batterie : batterie infinie active.");
+            return builder.ToString();
         }
 
         private static void FillBatteryToCapacity(Resource energy, string reason)
@@ -2265,16 +2531,6 @@ namespace LongSubmerged10x
             if (parameter == null)
                 return;
 
-            ParameterDeltaPatchData data;
-            if (!BatteryGainDeltaData.TryGetValue(parameter, out data))
-            {
-                data = new ParameterDeltaPatchData(parameter.AddDeltaModifier(RuntimeBatteryGainModifierName, false));
-                BatteryGainDeltaData.Add(parameter, data);
-            }
-
-            if (data.DeltaModifier == null)
-                return;
-
             float baseValue = parameter.GetValueExcludingModifier(RuntimeBatteryGainModifierName);
             float desiredValue = baseValue;
 
@@ -2283,7 +2539,34 @@ namespace LongSubmerged10x
             if (factor >= LongSubmergedRuntimeSettings.MaxRuntimeFactor - 0.0001f && baseValue < 0f)
                 desiredValue = 0f;
 
-            float delta = desiredValue - baseValue;
+            SetDelta(
+                parameter,
+                BatteryGainDeltaData,
+                RuntimeBatteryGainModifierName,
+                desiredValue - baseValue
+            );
+        }
+
+        private static void SetDelta(
+            Parameter parameter,
+            ConditionalWeakTable<Parameter, ParameterDeltaPatchData> table,
+            string modifierName,
+            float delta
+        )
+        {
+            if (parameter == null || table == null)
+                return;
+
+            ParameterDeltaPatchData data;
+            if (!table.TryGetValue(parameter, out data))
+            {
+                data = new ParameterDeltaPatchData(parameter.AddDeltaModifier(modifierName, false));
+                table.Add(parameter, data);
+            }
+
+            if (data.DeltaModifier == null)
+                return;
+
             if (Math.Abs(data.DeltaModifier.Value - delta) > 0.000001f)
                 data.DeltaModifier.Value = delta;
         }
@@ -2300,7 +2583,18 @@ namespace LongSubmerged10x
             if (owner == null)
                 owner = UnityEngine.Object.FindObjectOfType<PlayerShip>();
 
-            return owner != null && object.ReferenceEquals(owner.Energy, resource);
+            if (owner != null && object.ReferenceEquals(owner.Energy, resource))
+                return true;
+
+            return IsEnergyResourceName(resource.Name);
+        }
+
+        private static bool IsEnergyResourceName(string name)
+        {
+            return !string.IsNullOrEmpty(name)
+                && (name.Equals("Energy", StringComparison.OrdinalIgnoreCase)
+                    || name.IndexOf("Battery", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("Batterie", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         private static double GetResourceCapacity(Resource resource)
@@ -2719,6 +3013,171 @@ namespace LongSubmerged10x
             float desiredGain = -usage;
             if (Math.Abs(modifier.Value - desiredGain) > 0.0001f)
                 modifier.Value = desiredGain;
+        }
+
+        private static void ApplyGenericBatteryConsumers(string reason)
+        {
+            MonoBehaviour[] behaviours = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
+            foreach (MonoBehaviour behaviour in behaviours)
+            {
+                if (behaviour == null || behaviour is LongSubmergedMenuController)
+                    continue;
+
+                ApplyGenericBatteryConsumer(behaviour, reason);
+            }
+        }
+
+        private static void ApplyGenericBatteryConsumer(object target, string reason)
+        {
+            if (target == null)
+                return;
+
+            Type type = target.GetType();
+
+            foreach (FieldInfo field in GetGenericEnergyUsageFields(type))
+            {
+                Parameter energyUsage = GetParameterFromField(target, field);
+                if (energyUsage == null)
+                    continue;
+
+                ApplyEnergyUsageParameter(energyUsage);
+                ApplyDirectEnergyGainModifier(target, energyUsage, reason);
+                ApplyGenericEnergyModifierFields(target, energyUsage);
+            }
+
+            foreach (FieldInfo field in GetGenericParameterCollectionFields(type))
+            {
+                ParameterCollection parameters = GetParameterCollectionFromField(target, field);
+                if (parameters == null)
+                    continue;
+
+                ApplyBatteryCapacityParameter(GetParameter(parameters, "EnergyCapacityGain"));
+                Parameter energyUsage = GetParameter(parameters, "EnergyUsage");
+                ApplyEnergyUsageParameter(energyUsage);
+                ApplyDirectEnergyGainModifier(target, energyUsage, reason);
+                ApplyGenericEnergyModifierFields(target, energyUsage);
+            }
+        }
+
+        private static FieldInfo[] GetGenericEnergyUsageFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (GenericEnergyUsageFieldCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+            CollectFields(type, fields, typeof(Parameter), true);
+            cached = fields.ToArray();
+            GenericEnergyUsageFieldCache[type] = cached;
+            return cached;
+        }
+
+        private static FieldInfo[] GetGenericParameterCollectionFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (GenericParameterCollectionFieldCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+            CollectFields(type, fields, typeof(ParameterCollection), false);
+            cached = fields.ToArray();
+            GenericParameterCollectionFieldCache[type] = cached;
+            return cached;
+        }
+
+        private static FieldInfo[] GetGenericEnergyModifierFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (GenericEnergyModifierFieldCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+            CollectFields(type, fields, typeof(Modifier), false);
+            cached = fields.ToArray();
+            GenericEnergyModifierFieldCache[type] = cached;
+            return cached;
+        }
+
+        private static void CollectFields(Type type, List<FieldInfo> fields, Type requiredFieldType, bool energyUsageNameOnly)
+        {
+            for (Type current = type; current != null && current != typeof(object); current = current.BaseType)
+            {
+                FieldInfo[] declaredFields = current.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                foreach (FieldInfo field in declaredFields)
+                {
+                    if (field == null || !requiredFieldType.IsAssignableFrom(field.FieldType))
+                        continue;
+
+                    if (energyUsageNameOnly && !IsEnergyUsageMemberName(field.Name))
+                        continue;
+
+                    if (!energyUsageNameOnly && requiredFieldType == typeof(Modifier) && !IsEnergyModifierMemberName(field.Name))
+                        continue;
+
+                    fields.Add(field);
+                }
+            }
+        }
+
+        private static bool IsEnergyUsageMemberName(string name)
+        {
+            return !string.IsNullOrEmpty(name)
+                && name.IndexOf("EnergyUsage", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsEnergyModifierMemberName(string name)
+        {
+            return !string.IsNullOrEmpty(name)
+                && name.IndexOf("Energy", StringComparison.OrdinalIgnoreCase) >= 0
+                && name.IndexOf("Modifier", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static Parameter GetParameterFromField(object target, FieldInfo field)
+        {
+            try
+            {
+                return field == null ? null : field.GetValue(target) as Parameter;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ParameterCollection GetParameterCollectionFromField(object target, FieldInfo field)
+        {
+            try
+            {
+                return field == null ? null : field.GetValue(target) as ParameterCollection;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void ApplyGenericEnergyModifierFields(object target, Parameter energyUsage)
+        {
+            if (target == null || energyUsage == null)
+                return;
+
+            float usage = energyUsage.Value;
+            if (usage < 0f)
+                return;
+
+            float desiredGain = -usage;
+            foreach (FieldInfo field in GetGenericEnergyModifierFields(target.GetType()))
+            {
+                try
+                {
+                    Modifier modifier = field.GetValue(target) as Modifier;
+                    if (modifier != null && Math.Abs(modifier.Value - desiredGain) > 0.0001f)
+                        modifier.Value = desiredGain;
+                }
+                catch
+                {
+                }
+            }
         }
 
         private static Parameter GetParameter(ParameterCollection parameters, string key)
@@ -3250,7 +3709,7 @@ namespace LongSubmerged10x
     {
         private static void Postfix(PlayerShip __instance)
         {
-            LongSubmergedRuntimeApplier.MaintainInfiniteBatteryCharge(__instance, "PlayerShip.Update");
+            LongSubmergedRuntimeApplier.ApplyBatteryResource(__instance, "PlayerShip.Update");
         }
     }
 
@@ -3260,6 +3719,46 @@ namespace LongSubmerged10x
         private static bool Prefix(Resource __instance)
         {
             return !LongSubmergedRuntimeApplier.TryUpdateBatteryResourceAmount(__instance, "Resource.UpdateAmount");
+        }
+    }
+
+    [HarmonyPatch(typeof(ResourceGUI), "GetTooltipContents")]
+    internal static class ResourceGuiGetTooltipContentsPatch
+    {
+        private static bool Prefix(ResourceGUI __instance, ref string __result)
+        {
+            Resource resource = LongSubmergedRuntimeApplier.GetResourceFromGui(__instance);
+            if (!LongSubmergedRuntimeApplier.ShouldSuppressBatteryDepletionUi(resource, "ResourceGUI.GetTooltipContents"))
+                return true;
+
+            __result = LongSubmergedRuntimeApplier.BuildInfiniteBatteryTooltip(resource);
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(ResourceGUI), "UpdateDisplayedValue")]
+    internal static class ResourceGuiUpdateDisplayedValuePatch
+    {
+        private static void Prefix(ResourceGUI __instance)
+        {
+            LongSubmergedRuntimeApplier.TryMaintainBatteryResource(
+                LongSubmergedRuntimeApplier.GetResourceFromGui(__instance),
+                "ResourceGUI.UpdateDisplayedValue"
+            );
+        }
+    }
+
+    [HarmonyPatch(typeof(DepletingResourceNotification), "DoUpdate")]
+    internal static class DepletingResourceNotificationDoUpdatePatch
+    {
+        private static bool Prefix(DepletingResourceNotification __instance, ref float __result)
+        {
+            Resource resource = LongSubmergedRuntimeApplier.GetResourceFromDepletingNotification(__instance);
+            if (!LongSubmergedRuntimeApplier.ShouldSuppressBatteryDepletionUi(resource, "DepletingResourceNotification.DoUpdate"))
+                return true;
+
+            __result = 5f;
+            return false;
         }
     }
 

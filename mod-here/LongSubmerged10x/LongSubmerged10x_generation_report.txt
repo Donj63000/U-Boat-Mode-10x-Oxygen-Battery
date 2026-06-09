@@ -7,10 +7,10 @@ Compteurs :
 - player_submarine_speed_rows: 8
 
 Fichiers générés :
-- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\LongSubmerged10x\Source\LongSubmergedRuntimePatch.cs
-- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\LongSubmerged10x\Data Sheets\General.xlsx
-- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\LongSubmerged10x\Data Sheets\Realistic Travel\General.xlsx
-- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\LongSubmerged10x\Data Sheets\Entities.xlsx
+- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\mod-here\LongSubmerged10x\Source\LongSubmergedRuntimePatch.cs
+- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\mod-here\LongSubmerged10x\Data Sheets\General.xlsx
+- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\mod-here\LongSubmerged10x\Data Sheets\Realistic Travel\General.xlsx
+- C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\mod-here\LongSubmerged10x\Data Sheets\Entities.xlsx
 
 Changements :
 - Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, chargement de sauvegarde et changement d'equipage, plus vitesse rapide, plafond runtime, propulseurs, carburant rapide, menu F10 et toggles mega.
