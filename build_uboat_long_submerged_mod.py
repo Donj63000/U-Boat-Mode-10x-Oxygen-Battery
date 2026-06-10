@@ -5253,14 +5253,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--torpedo-explosion-radius-factor",
         type=float,
         default=DEFAULT_TORPEDO_EXPLOSION_RADIUS_FACTOR,
-        help="Multiplicateur DamageRadius et DamageEffectsRadius des torpilles. Défaut : 10.",
+        help="Multiplicateur DamageRadius et DamageEffectsRadius des torpilles. Défaut : 3.",
     )
 
     parser.add_argument(
         "--torpedo-explosion-intensity-factor",
         type=float,
         default=DEFAULT_TORPEDO_EXPLOSION_INTENSITY_FACTOR,
-        help="Multiplicateur DamageEffectsIntensity des torpilles. Défaut : 10.",
+        help="Multiplicateur DamageEffectsIntensity des torpilles. Défaut : 3.",
     )
 
     torpedo_reliability_group = parser.add_mutually_exclusive_group()

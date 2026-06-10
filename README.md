@@ -155,15 +155,16 @@ Important defaults:
 
 | Setting | Default |
 | --- | ---: |
-| `--oxygen-consumption-factor` | `1800` |
+| `--oxygen-consumption-factor` | `250` |
 | `--battery-capacity-factor` | `10` |
 | `--energy-usage-factor` | `0.1` |
-| `--fast-speed-factor` | `3.5` |
+| `--fast-speed-factor` | `8` |
 | `--fast-speed-fuel-factor` | `8` |
 | `--player-submarine-max-speed` | `45` |
 | `--torpedo-damage-factor` | `10` |
-| `--torpedo-explosion-radius-factor` | `10` |
-| `--torpedo-explosion-intensity-factor` | `10` |
+| `--torpedo-crew-damage-factor` | `10` |
+| `--torpedo-explosion-radius-factor` | `3` |
+| `--torpedo-explosion-intensity-factor` | `3` |
 
 ## Validation
 

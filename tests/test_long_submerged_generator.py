@@ -112,6 +112,30 @@ def find_row_by_id(ws, row_id: str) -> int:
 
 
 class LongSubmergedGeneratorTests(unittest.TestCase):
+    def test_github_presentation_matches_generator_defaults(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        readme_text = (repo_root / "README.md").read_text(encoding="utf-8")
+        install_text = (repo_root / "mod-here" / "install.txt").read_text(encoding="utf-8")
+
+        expected_defaults = {
+            "--oxygen-consumption-factor": generator.DEFAULT_OXYGEN_CONSUMPTION_FACTOR,
+            "--battery-capacity-factor": generator.DEFAULT_BATTERY_CAPACITY_FACTOR,
+            "--energy-usage-factor": generator.DEFAULT_EQUIPMENT_ENERGY_USAGE_FACTOR,
+            "--fast-speed-factor": generator.DEFAULT_FAST_SPEED_FACTOR,
+            "--fast-speed-fuel-factor": generator.DEFAULT_FAST_SPEED_FUEL_FACTOR,
+            "--player-submarine-max-speed": generator.DEFAULT_PLAYER_SUBMARINE_MAX_SPEED,
+            "--torpedo-damage-factor": generator.DEFAULT_TORPEDO_DAMAGE_FACTOR,
+            "--torpedo-crew-damage-factor": generator.DEFAULT_TORPEDO_CREW_DAMAGE_FACTOR,
+            "--torpedo-explosion-radius-factor": generator.DEFAULT_TORPEDO_EXPLOSION_RADIUS_FACTOR,
+            "--torpedo-explosion-intensity-factor": generator.DEFAULT_TORPEDO_EXPLOSION_INTENSITY_FACTOR,
+        }
+
+        for option, value in expected_defaults.items():
+            self.assertIn(f"| `{option}` | `{value:g}` |", readme_text)
+
+        self.assertIn(f"- SuperSpeed: {generator.DEFAULT_FAST_SPEED_FACTOR:g}, boosted fast gears.", install_text)
+        self.assertIn("- Sonar: 3, boosted hydrophone range.", install_text)
+
     def test_generator_keeps_surface_oxygen_vanilla_and_runtime_safe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

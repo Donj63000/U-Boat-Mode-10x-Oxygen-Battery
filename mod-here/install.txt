@@ -39,8 +39,9 @@ Default settings:
 
 - Battery: 100, infinite battery hold enabled.
 - Oxygen: 100, about 90 days underwater.
-- SuperSpeed: 3.5, boosted fast gears.
+- SuperSpeed: 8, boosted fast gears.
 - Torpedoes: 10, stronger explosions and better locked-target behavior.
+- Sonar: 3, boosted hydrophone range.
 
 Use the Default button in the F10 menu if you want to restore the shipped profile.
 
