@@ -11,11 +11,12 @@ Paramètres utilisés :
 - Deux derniers crans avant : vitesse/propulsion x8
 - Deux derniers crans avant : carburant x8
 - Vitesse max sous-marin joueur : 45 km/h
-- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10
+- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10
 - Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie
 - Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours
 - Slider SuperVitesse : 1 = vanilla, 8 = defaut actuel, 20 = maximum
 - Slider Torpilles : 1 = vanilla, 10 = maximum
+- Slider Sonar : 1 = vanilla, 3 = defaut actuel, 10 = maximum
 - Bouton Par defaut : restaure les reglages du profil actuel
 - Mega torpilles : oui
 - Mega torpilles degats : x10
@@ -26,7 +27,7 @@ Paramètres utilisés :
 - DudChance torpilles : 0
 - Defaillance magnetique torpilles : 0
 - Explosion magnetique prematuree torpilles : 0
-- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles
+- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles et Mega Sonar
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
 - Patch runtime : LongSubmerged10xPatch_1_4_8, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme
@@ -48,6 +49,7 @@ Notes :
 - Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.
 - Les crans rapides consomment plus de carburant pour garder une autonomie logique.
 - Les torpilles gardent leur vitesse/portee vanilla ; les degats, explosions, rates et le guidage verrouille sont geres en runtime.
+- Mega Sonar augmente seulement la portee hydrophone ; x1 ou case decochee revient vanilla.
 - Le guidage mega met les tirs verrouilles en cible cartésienne dynamique et force l'impact a courte distance.
 - La fiabilite parfaite met DudChance, MagneticExplosionFail, MagneticExplosionOnArm et MagneticExplosionAfterArm a 0 quand Mega Torpilles est actif.
 - Couper Mega Torpilles remet les torpilles sur les valeurs vanilla, car les XLSX torpilles ne sont pas ecrases.
@@ -65,3 +67,4 @@ Compteurs de génération :
 - SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant
 - Lignes vitesse sous-marin joueur : 0
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee
+- Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone

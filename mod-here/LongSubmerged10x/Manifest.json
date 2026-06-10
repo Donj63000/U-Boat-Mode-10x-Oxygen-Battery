@@ -1,7 +1,7 @@
 {
   "name": "Long Submerged 10x+",
   "version": "1.4.8",
-  "description": "Immersion longue : oxygene runtime calibre 1=vanilla et 100=environ 90 jours, recharge surface vanilla, aucune capacite d'air XLSX modifiee, discipline x1/15, batterie reglable 1=vanilla, 10=x10, 100=infinie, consommation electrique runtime restauree proprement, SuperVitesse reglable 1=x1 a 20=x20 sur les crans rapides, torpilles reglables 1=x1 a 10=x10, menu runtime F10 debounce pour eviter les freezes de slider, AirCompressor et Ventilation vanilla.",
+  "description": "Immersion longue : oxygene runtime calibre 1=vanilla et 100=environ 90 jours, recharge surface vanilla, aucune capacite d'air XLSX modifiee, discipline x1/15, batterie reglable 1=vanilla, 10=x10, 100=infinie, consommation electrique runtime restauree proprement, SuperVitesse reglable 1=x1 a 20=x20 sur les crans rapides, torpilles reglables 1=x1 a 10=x10, sonar hydrophone reglable 1=x1 a 10=x10, defaut x3, menu runtime F10 debounce pour eviter les freezes de slider, AirCompressor et Ventilation vanilla.",
   "author": "VotreNomOuVotreEquipe",
   "minGameVersion": "2026.1",
   "maxGameVersion": "",

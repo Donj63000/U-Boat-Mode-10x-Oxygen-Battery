@@ -1376,7 +1376,7 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
             f"{args.fast_speed_top_gears} crans rapides vitesse x{args.fast_speed_factor:g}, "
             f"carburant rapide x{args.fast_speed_fuel_factor:g}, "
             f"vitesse max joueur {args.player_submarine_max_speed:g} km/h, menu runtime F10. "
-            "sliders runtime bornes par profil pour batterie, oxygene, SuperVitesse et torpilles. "
+            "sliders runtime bornes par profil pour batterie, oxygene, SuperVitesse, torpilles et sonar. "
             + (
                 f"mega torpilles : degats torpilles x{args.torpedo_damage_factor:g}, "
                 f"effets visuels d'explosion bornes x{args.torpedo_explosion_radius_factor:g} pour stabilite. "
@@ -1407,6 +1407,7 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
         "consommation electrique runtime restauree proprement, "
         "SuperVitesse reglable 1=x1 a 20=x20 sur les crans rapides, "
         "torpilles reglables 1=x1 a 10=x10, "
+        "sonar hydrophone reglable 1=x1 a 10=x10, defaut x3, "
         "menu runtime F10 debounce pour eviter les freezes de slider, "
         "AirCompressor et Ventilation vanilla."
     )
@@ -1510,6 +1511,7 @@ namespace LongSubmerged10x
             typeof(TorpedoAwakePatch),
             typeof(TorpedoFixedUpdatePatch),
             typeof(TorpedoDetonatePatch),
+            typeof(MegaSonarHydrophoneRefreshPatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
             typeof(ResourceGuiUpdateDisplayedValuePatch)
         };
@@ -1538,63 +1540,70 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 11;
+        private const int RuntimeSettingsVersion = 12;
 
         public const float MinRuntimeFactor = 1f;
         public const float BatteryMaxFactor = 100f;
         public const float OxygenMaxFactor = 100f;
         public const float SpeedMaxFactor = 20f;
         public const float TorpedoMaxFactor = 10f;
+        public const float SonarMaxFactor = 10f;
 
         // Compatibilite interne : les anciens blocs utilisaient MaxRuntimeFactor pour Batterie/Oxygene.
-        // Les sliders vitesse et torpilles ont maintenant leurs propres bornes.
+        // Les sliders vitesse, torpilles et sonar ont maintenant leurs propres bornes.
         public const float MaxRuntimeFactor = BatteryMaxFactor;
 
         private const bool DefaultMegaBattery = true;
         private const bool DefaultMegaOxygen = true;
         private const bool DefaultSuperSpeed = true;
         private const bool DefaultMegaTorpedoes = __DEFAULT_MEGA_TORPEDOES__;
+        private const bool DefaultMegaSonar = true;
 
         // DonJ : defauts lisibles en jeu.
         // Batterie x10 finie par defaut, cran 100 = batterie infinie.
         // Oxygene 100 = profil calibre environ 90 jours.
         // Vitesse x8 par defaut, reglable jusqu'a x20.
         // Torpilles x10 maximum.
+        // Sonar x3 par defaut, reglable de x1 vanilla a x10.
         private const float DefaultBatteryFactor = 10f;
         private const float DefaultOxygenFactor = 100f;
         private const float DefaultSpeedFactor = __FAST_SPEED_FACTOR__;
         private const float DefaultTorpedoFactor = __TORPEDO_DAMAGE_FACTOR__;
+        private const float DefaultSonarFactor = 3f;
 
         public static bool MegaBattery = DefaultMegaBattery;
         public static bool MegaOxygen = DefaultMegaOxygen;
         public static bool SuperSpeed = DefaultSuperSpeed;
         public static bool MegaTorpedoes = DefaultMegaTorpedoes;
+        public static bool MegaSonar = DefaultMegaSonar;
         public static float BatteryFactor = DefaultBatteryFactor;
         public static float OxygenFactor = DefaultOxygenFactor;
         public static float SpeedFactor = DefaultSpeedFactor;
         public static float TorpedoFactor = DefaultTorpedoFactor;
+        public static float SonarFactor = DefaultSonarFactor;
 
         public static void Load()
         {
-            if (PlayerPrefs.GetInt(PrefPrefix + "RuntimeSettingsVersion", 0) < RuntimeSettingsVersion)
-            {
-                // DonJ : migration volontaire en 1.4.8.
-                // Les anciennes prefs pouvaient garder Batterie=100, Vitesse=56 ou Torpilles=100.
-                // Je force donc des defauts propres avec les nouvelles bornes par slider.
-                ResetToDefaults();
-                Save();
-                Debug.Log("[LongSubmerged10x] Runtime settings migrated to defaults v" + RuntimeSettingsVersion + ".");
-                return;
-            }
+            int savedVersion = PlayerPrefs.GetInt(PrefPrefix + "RuntimeSettingsVersion", 0);
 
             MegaBattery = ReadBool("MegaBattery", DefaultMegaBattery);
             MegaOxygen = ReadBool("MegaOxygen", DefaultMegaOxygen);
             SuperSpeed = ReadBool("SuperSpeed", DefaultSuperSpeed);
             MegaTorpedoes = ReadBool("MegaTorpedoes", DefaultMegaTorpedoes);
+            MegaSonar = ReadBool("MegaSonar", DefaultMegaSonar);
+
             BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor, BatteryMaxFactor);
             OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor, OxygenMaxFactor);
             SpeedFactor = ReadFactor("SpeedFactor", DefaultSpeedFactor, SpeedMaxFactor);
             TorpedoFactor = ReadFactor("TorpedoFactor", DefaultTorpedoFactor, TorpedoMaxFactor);
+            SonarFactor = ReadFactor("SonarFactor", DefaultSonarFactor, SonarMaxFactor);
+
+            if (savedVersion < RuntimeSettingsVersion)
+            {
+                // Migration douce : on conserve les reglages existants et on ajoute seulement les nouvelles cles.
+                Save();
+                Debug.Log("[LongSubmerged10x] Runtime settings migrated to v" + RuntimeSettingsVersion + ".");
+            }
         }
 
         public static void Save()
@@ -1603,15 +1612,18 @@ namespace LongSubmerged10x
             OxygenFactor = ClampOxygenFactor(OxygenFactor);
             SpeedFactor = ClampSpeedFactor(SpeedFactor);
             TorpedoFactor = ClampTorpedoFactor(TorpedoFactor);
+            SonarFactor = ClampSonarFactor(SonarFactor);
 
             PlayerPrefs.SetInt(PrefPrefix + "MegaBattery", MegaBattery ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaOxygen", MegaOxygen ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "SuperSpeed", SuperSpeed ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaTorpedoes", MegaTorpedoes ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "MegaSonar", MegaSonar ? 1 : 0);
             PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", BatteryFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", OxygenFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", SpeedFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "TorpedoFactor", TorpedoFactor);
+            PlayerPrefs.SetFloat(PrefPrefix + "SonarFactor", SonarFactor);
             PlayerPrefs.SetInt(PrefPrefix + "RuntimeSettingsVersion", RuntimeSettingsVersion);
             PlayerPrefs.Save();
         }
@@ -1622,10 +1634,12 @@ namespace LongSubmerged10x
             MegaOxygen = DefaultMegaOxygen;
             SuperSpeed = DefaultSuperSpeed;
             MegaTorpedoes = DefaultMegaTorpedoes;
+            MegaSonar = DefaultMegaSonar;
             BatteryFactor = DefaultBatteryFactor;
             OxygenFactor = DefaultOxygenFactor;
             SpeedFactor = DefaultSpeedFactor;
             TorpedoFactor = DefaultTorpedoFactor;
+            SonarFactor = DefaultSonarFactor;
         }
 
         public static float ClampFactor(float value)
@@ -1651,6 +1665,11 @@ namespace LongSubmerged10x
         public static float ClampTorpedoFactor(float value)
         {
             return ClampFactor(value, TorpedoMaxFactor);
+        }
+
+        public static float ClampSonarFactor(float value)
+        {
+            return ClampFactor(value, SonarMaxFactor);
         }
 
         public static float ClampFactor(float value, float maxValue)
@@ -1679,6 +1698,7 @@ namespace LongSubmerged10x
         private const KeyCode MenuKey = KeyCode.F10;
         private const int CanvasSortingOrder = 32000;
         private const float BatteryMaintenanceIntervalSeconds = 0.20f;
+        private const float MegaSonarMaintenanceIntervalSeconds = 1.00f;
         private const float RuntimeApplyDebounceSeconds = 0.12f;
         private static LongSubmergedMenuController instance;
         private static Font cachedFont;
@@ -1688,17 +1708,21 @@ namespace LongSubmerged10x
         private Toggle megaOxygenToggle;
         private Toggle superSpeedToggle;
         private Toggle megaTorpedoesToggle;
+        private Toggle megaSonarToggle;
         private Slider batteryFactorSlider;
         private Slider oxygenFactorSlider;
         private Slider speedFactorSlider;
         private Slider torpedoFactorSlider;
+        private Slider sonarFactorSlider;
         private Text batteryFactorValueText;
         private Text oxygenFactorValueText;
         private Text speedFactorValueText;
         private Text torpedoFactorValueText;
+        private Text sonarFactorValueText;
         private bool visible;
         private bool suppressToggleEvents;
         private float nextBatteryMaintenanceTime;
+        private float nextMegaSonarMaintenanceTime;
         private bool pendingRuntimeApply;
         private float pendingRuntimeApplyTime;
         private string pendingRuntimeApplyReason;
@@ -1752,6 +1776,7 @@ namespace LongSubmerged10x
 
             RunPendingRuntimeApplyTick();
             RunBatteryMaintenanceTick();
+            RunMegaSonarMaintenanceTick();
         }
 
         private void RunBatteryMaintenanceTick()
@@ -1767,6 +1792,19 @@ namespace LongSubmerged10x
 
             nextBatteryMaintenanceTime = now + BatteryMaintenanceIntervalSeconds;
             LongSubmergedRuntimeApplier.MaintainBatteryRuntime("runtime heartbeat");
+        }
+
+        private void RunMegaSonarMaintenanceTick()
+        {
+            if (!LongSubmergedRuntimeSettings.MegaSonar)
+                return;
+
+            float now = Time.unscaledTime;
+            if (now < nextMegaSonarMaintenanceTime)
+                return;
+
+            nextMegaSonarMaintenanceTime = now + MegaSonarMaintenanceIntervalSeconds;
+            MegaSonarRuntimePatcher.ApplyAll("runtime sonar heartbeat");
         }
 
         private void RunPendingRuntimeApplyTick()
@@ -1852,7 +1890,7 @@ namespace LongSubmerged10x
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(28f, -82f);
-            panelRect.sizeDelta = new Vector2(470f, 512f);
+            panelRect.sizeDelta = new Vector2(470f, 600f);
 
             CreateText(panelObject.transform, "Title", "Long Submerged 10x+", 20, FontStyle.Bold, new Vector2(18f, -16f), new Vector2(410f, 30f));
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
@@ -1869,10 +1907,13 @@ namespace LongSubmerged10x
             megaTorpedoesToggle = CreateToggle(panelObject.transform, "Mega Torpilles", new Vector2(20f, -310f));
             torpedoFactorSlider = CreateFactorSlider(panelObject.transform, "Torpilles", LongSubmergedRuntimeSettings.TorpedoMaxFactor, new Vector2(20f, -346f), out torpedoFactorValueText);
 
-            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -430f), new Vector2(140f, 38f));
+            megaSonarToggle = CreateToggle(panelObject.transform, "Mega Sonar", new Vector2(20f, -386f));
+            sonarFactorSlider = CreateFactorSlider(panelObject.transform, "Hydrophone portee", LongSubmergedRuntimeSettings.SonarMaxFactor, new Vector2(20f, -422f), out sonarFactorValueText);
+
+            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -510f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
 
-            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -430f), new Vector2(220f, 38f));
+            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -510f), new Vector2(220f, 38f));
             refreshButton.onClick.AddListener(OnRefreshClicked);
         }
 
@@ -1942,10 +1983,12 @@ namespace LongSubmerged10x
             LongSubmergedRuntimeSettings.MegaOxygen = megaOxygenToggle != null && megaOxygenToggle.isOn;
             LongSubmergedRuntimeSettings.SuperSpeed = superSpeedToggle != null && superSpeedToggle.isOn;
             LongSubmergedRuntimeSettings.MegaTorpedoes = megaTorpedoesToggle != null && megaTorpedoesToggle.isOn;
+            LongSubmergedRuntimeSettings.MegaSonar = megaSonarToggle != null && megaSonarToggle.isOn;
             LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor);
             LongSubmergedRuntimeSettings.TorpedoFactor = ReadSliderFactor(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
+            LongSubmergedRuntimeSettings.SonarFactor = ReadSliderFactor(sonarFactorSlider, LongSubmergedRuntimeSettings.SonarMaxFactor);
         }
 
         private void OnDefaultsClicked()
@@ -1980,10 +2023,14 @@ namespace LongSubmerged10x
             if (megaTorpedoesToggle != null)
                 megaTorpedoesToggle.isOn = LongSubmergedRuntimeSettings.MegaTorpedoes;
 
+            if (megaSonarToggle != null)
+                megaSonarToggle.isOn = LongSubmergedRuntimeSettings.MegaSonar;
+
             SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             SetSliderValue(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedFactor, LongSubmergedRuntimeSettings.SpeedMaxFactor);
             SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
+            SetSliderValue(sonarFactorSlider, LongSubmergedRuntimeSettings.SonarFactor, LongSubmergedRuntimeSettings.SonarMaxFactor);
             RefreshFactorLabels();
 
             suppressToggleEvents = false;
@@ -2009,6 +2056,7 @@ namespace LongSubmerged10x
 
             SetFactorLabel(speedFactorValueText, speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor, "x", null);
             SetFactorLabel(torpedoFactorValueText, torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoMaxFactor, "x", null);
+            SetFactorLabel(sonarFactorValueText, sonarFactorSlider, LongSubmergedRuntimeSettings.SonarMaxFactor, "x", null);
         }
 
         private static void SetSliderValue(Slider slider, float value, float maxValue)
@@ -2366,6 +2414,7 @@ namespace LongSubmerged10x
                 LongSubmergedMenuController.Ensure();
                 ApplyPlayerShip(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason);
                 ApplyBatteryConsumers(reason);
+                MegaSonarRuntimePatcher.ApplyAll(reason + ".MegaSonar");
 
                 foreach (StoredTorpedo item in UnityEngine.Object.FindObjectsOfType<StoredTorpedo>())
                     ApplyStoredTorpedo(item, reason + ".StoredTorpedo");
@@ -3442,6 +3491,731 @@ namespace LongSubmerged10x
         }
     }
 
+    internal static class MegaSonarRuntimePatcher
+    {
+        private const string MegaSonarScaleModifierName = "LongSubmerged10x Mega Sonar Runtime";
+
+        private static readonly string[] HydrophoneParameterKeys = new string[]
+        {
+            "HydrophoneRange",
+            "GroupHydrophoneRange",
+            "DirectHydrophoneRange",
+            "HydrophoneDirectRange",
+            "HydrophoneDetectionRange",
+            "NoiseHydrophoneRange",
+            "HydrophoneNoiseRange",
+            "ListeningRange",
+            "PassiveSonarRange"
+        };
+
+        private static readonly string[] DirectRefreshMethodNames = new string[]
+        {
+            "Awake",
+            "Start",
+            "OnEnable",
+            "OnAfterDeserialize",
+            "SavesManagerOnLoaded",
+            "Update",
+            "FixedUpdate",
+            "UpdateModifiers",
+            "ApplyModifiers",
+            "Refresh",
+            "Recalculate",
+            "Validate"
+        };
+
+        private static readonly ConditionalWeakTable<Parameter, ParameterScalePatchData> SonarScaleData =
+            new ConditionalWeakTable<Parameter, ParameterScalePatchData>();
+
+        private static readonly ConditionalWeakTable<object, MegaSonarObjectPatchData> ObjectPatchData =
+            new ConditionalWeakTable<object, MegaSonarObjectPatchData>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> ParameterFieldCache =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> ParameterCollectionFieldCache =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly Dictionary<Type, FieldInfo[]> FloatFieldCache =
+            new Dictionary<Type, FieldInfo[]>();
+
+        private static readonly Dictionary<Type, PropertyInfo[]> FloatPropertyCache =
+            new Dictionary<Type, PropertyInfo[]>();
+
+        private static readonly HashSet<int> ApplicationGuardIds = new HashSet<int>();
+        private static readonly HashSet<string> TargetMethodLogIds = new HashSet<string>();
+
+        public static void ApplyAll(string reason)
+        {
+            try
+            {
+                Equipment[] equipmentItems = UnityEngine.Object.FindObjectsOfType<Equipment>();
+                foreach (Equipment equipment in equipmentItems)
+                    ApplyEquipment(equipment, reason + ".Equipment");
+
+                MonoBehaviour[] behaviours = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
+                foreach (MonoBehaviour behaviour in behaviours)
+                {
+                    if (behaviour == null || behaviour is LongSubmergedMenuController || behaviour is Equipment)
+                        continue;
+
+                    if (!IsPotentialHydrophoneObject(behaviour))
+                        continue;
+
+                    ApplyObject(behaviour, reason + ".HydrophoneObject");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void ApplyObject(object target, string reason)
+        {
+            if (target == null || target is LongSubmergedMenuController)
+                return;
+
+            if (!TryEnter(target))
+                return;
+
+            try
+            {
+                Equipment equipment = target as Equipment;
+                if (equipment != null)
+                {
+                    ApplyEquipment(equipment, reason);
+                    return;
+                }
+
+                bool ownerLooksHydrophone = IsPotentialHydrophoneObject(target);
+                if (!ownerLooksHydrophone)
+                    return;
+
+                Type type = target.GetType();
+                ApplyParameterFields(target, type, ownerLooksHydrophone);
+                ApplyParameterCollections(target, type);
+                ApplyDirectFloatMembers(target, type, ownerLooksHydrophone);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Mega Sonar skipped on " + SafeObjectName(target) + " -> " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                Exit(target);
+            }
+        }
+
+        public static IEnumerable<MethodBase> FindHydrophoneTargetMethods()
+        {
+            HashSet<string> emitted = new HashSet<string>();
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+
+            foreach (Assembly assembly in assemblies)
+            {
+                Type[] types = GetTypesSafely(assembly);
+                if (types == null)
+                    continue;
+
+                foreach (Type type in types)
+                {
+                    if (!IsPotentialHydrophoneType(type))
+                        continue;
+
+                    MethodInfo[] methods;
+                    try
+                    {
+                        methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    foreach (MethodInfo method in methods)
+                    {
+                        if (method == null || method.IsAbstract || method.ContainsGenericParameters)
+                            continue;
+
+                        if (!IsHydrophoneRefreshMethod(method.Name))
+                            continue;
+
+                        string id = type.FullName + "::" + method.Name + "#" + method.GetParameters().Length;
+                        if (!emitted.Add(id))
+                            continue;
+
+                        if (TargetMethodLogIds.Add(id))
+                            Debug.Log("[LongSubmerged10x] Mega Sonar will refresh after " + id + ".");
+
+                        yield return method;
+                    }
+                }
+            }
+        }
+
+        private static void ApplyEquipment(Equipment equipment, string reason)
+        {
+            if (equipment == null || equipment.Parameters == null)
+                return;
+
+            bool hasHydrophoneRanges = ApplyParameterCollection(equipment.Parameters);
+            bool equipmentLooksHydrophone = hasHydrophoneRanges || IsHydrophoneName(equipment.name);
+
+            if (equipmentLooksHydrophone)
+                ApplyDirectFloatMembers(equipment, equipment.GetType(), true);
+        }
+
+        private static void ApplyParameterFields(object target, Type type, bool ownerLooksHydrophone)
+        {
+            foreach (FieldInfo field in GetParameterFields(type))
+            {
+                if (!IsHydrophoneRangeMemberName(field.Name, ownerLooksHydrophone))
+                    continue;
+
+                try
+                {
+                    Parameter parameter = field.GetValue(target) as Parameter;
+                    ApplyParameterScale(parameter);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void ApplyParameterCollections(object target, Type type)
+        {
+            foreach (FieldInfo field in GetParameterCollectionFields(type))
+            {
+                try
+                {
+                    ParameterCollection parameters = field.GetValue(target) as ParameterCollection;
+                    ApplyParameterCollection(parameters);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static bool ApplyParameterCollection(ParameterCollection parameters)
+        {
+            if (parameters == null)
+                return false;
+
+            bool foundAny = false;
+            foreach (string key in HydrophoneParameterKeys)
+            {
+                Parameter parameter = GetParameter(parameters, key);
+                if (parameter == null)
+                    continue;
+
+                ApplyParameterScale(parameter);
+                foundAny = true;
+            }
+
+            return foundAny;
+        }
+
+        private static void ApplyParameterScale(Parameter parameter)
+        {
+            if (parameter == null)
+                return;
+
+            ParameterScalePatchData data;
+            if (!SonarScaleData.TryGetValue(parameter, out data))
+            {
+                data = new ParameterScalePatchData(parameter.AddScaleModifier(MegaSonarScaleModifierName, false));
+                SonarScaleData.Add(parameter, data);
+            }
+
+            if (data.ScaleModifier == null)
+                return;
+
+            float scale = GetEffectiveSonarFactor();
+            if (Math.Abs(data.ScaleModifier.Value - scale) > 0.0001f)
+                data.ScaleModifier.Value = scale;
+        }
+
+        private static void ApplyDirectFloatMembers(object target, Type type, bool ownerLooksHydrophone)
+        {
+            foreach (FieldInfo field in GetFloatFields(type))
+            {
+                if (!IsHydrophoneRangeMemberName(field.Name, ownerLooksHydrophone))
+                    continue;
+
+                ApplyFloatField(target, field);
+            }
+
+            foreach (PropertyInfo property in GetFloatProperties(type))
+            {
+                if (!IsHydrophoneRangeMemberName(property.Name, ownerLooksHydrophone))
+                    continue;
+
+                ApplyFloatProperty(target, property);
+            }
+        }
+
+        private static void ApplyFloatField(object target, FieldInfo field)
+        {
+            try
+            {
+                object rawValue = field.GetValue(target);
+                if (!(rawValue is float))
+                    return;
+
+                float currentValue = (float)rawValue;
+                float desiredValue;
+                if (!TryGetDesiredFloatValue(target, GetMemberKey(field), currentValue, out desiredValue))
+                    return;
+
+                if (Math.Abs(currentValue - desiredValue) > GetFloatTolerance(desiredValue))
+                    field.SetValue(target, desiredValue);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void ApplyFloatProperty(object target, PropertyInfo property)
+        {
+            try
+            {
+                object rawValue = property.GetValue(target, null);
+                if (!(rawValue is float))
+                    return;
+
+                float currentValue = (float)rawValue;
+                float desiredValue;
+                if (!TryGetDesiredFloatValue(target, GetMemberKey(property), currentValue, out desiredValue))
+                    return;
+
+                if (Math.Abs(currentValue - desiredValue) > GetFloatTolerance(desiredValue))
+                    property.SetValue(target, desiredValue, null);
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool TryGetDesiredFloatValue(object target, string memberKey, float currentValue, out float desiredValue)
+        {
+            desiredValue = currentValue;
+
+            if (!IsFinite(currentValue) || currentValue <= 0f)
+                return false;
+
+            float factor = GetEffectiveSonarFactor();
+            MegaSonarObjectPatchData objectData = GetObjectPatchData(target);
+
+            MegaSonarFloatMemberPatchData memberData;
+            if (!objectData.FloatMembers.TryGetValue(memberKey, out memberData))
+            {
+                memberData = new MegaSonarFloatMemberPatchData(currentValue, 1f);
+                objectData.FloatMembers.Add(memberKey, memberData);
+            }
+
+            if (factor <= 1.0001f)
+            {
+                float previousExpected = memberData.OriginalValue * memberData.LastAppliedFactor;
+                if (memberData.LastAppliedFactor <= 1.0001f || Math.Abs(currentValue - previousExpected) > GetFloatTolerance(previousExpected))
+                    memberData.OriginalValue = currentValue;
+
+                memberData.LastAppliedFactor = 1f;
+                desiredValue = memberData.OriginalValue;
+                return IsFinite(desiredValue) && desiredValue > 0f;
+            }
+
+            if (Math.Abs(factor - memberData.LastAppliedFactor) <= 0.0001f)
+            {
+                float previousExpected = memberData.OriginalValue * memberData.LastAppliedFactor;
+                if (Math.Abs(currentValue - previousExpected) > GetFloatTolerance(previousExpected))
+                    memberData.OriginalValue = currentValue;
+            }
+
+            desiredValue = memberData.OriginalValue * factor;
+            memberData.LastAppliedFactor = factor;
+            return IsFinite(desiredValue) && desiredValue > 0f;
+        }
+
+        private static MegaSonarObjectPatchData GetObjectPatchData(object target)
+        {
+            MegaSonarObjectPatchData data;
+            if (!ObjectPatchData.TryGetValue(target, out data))
+            {
+                data = new MegaSonarObjectPatchData();
+                ObjectPatchData.Add(target, data);
+            }
+
+            return data;
+        }
+
+        private static float GetEffectiveSonarFactor()
+        {
+            if (!LongSubmergedRuntimeSettings.MegaSonar)
+                return 1f;
+
+            return LongSubmergedRuntimeSettings.ClampSonarFactor(LongSubmergedRuntimeSettings.SonarFactor);
+        }
+
+        private static FieldInfo[] GetParameterFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (ParameterFieldCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+            CollectFields(type, fields, typeof(Parameter));
+            cached = fields.ToArray();
+            ParameterFieldCache[type] = cached;
+            return cached;
+        }
+
+        private static FieldInfo[] GetParameterCollectionFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (ParameterCollectionFieldCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+            CollectFields(type, fields, typeof(ParameterCollection));
+            cached = fields.ToArray();
+            ParameterCollectionFieldCache[type] = cached;
+            return cached;
+        }
+
+        private static FieldInfo[] GetFloatFields(Type type)
+        {
+            FieldInfo[] cached;
+            if (FloatFieldCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+
+            for (Type current = type; current != null && current != typeof(object); current = current.BaseType)
+            {
+                FieldInfo[] declaredFields = current.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                foreach (FieldInfo field in declaredFields)
+                {
+                    if (field == null || field.FieldType != typeof(float) || field.IsInitOnly || field.IsLiteral)
+                        continue;
+
+                    fields.Add(field);
+                }
+            }
+
+            cached = fields.ToArray();
+            FloatFieldCache[type] = cached;
+            return cached;
+        }
+
+        private static PropertyInfo[] GetFloatProperties(Type type)
+        {
+            PropertyInfo[] cached;
+            if (FloatPropertyCache.TryGetValue(type, out cached))
+                return cached;
+
+            List<PropertyInfo> properties = new List<PropertyInfo>();
+
+            for (Type current = type; current != null && current != typeof(object); current = current.BaseType)
+            {
+                PropertyInfo[] declaredProperties = current.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                foreach (PropertyInfo property in declaredProperties)
+                {
+                    if (property == null || property.PropertyType != typeof(float))
+                        continue;
+
+                    if (property.GetIndexParameters().Length != 0)
+                        continue;
+
+                    if (property.GetGetMethod(true) == null || property.GetSetMethod(true) == null)
+                        continue;
+
+                    properties.Add(property);
+                }
+            }
+
+            cached = properties.ToArray();
+            FloatPropertyCache[type] = cached;
+            return cached;
+        }
+
+        private static void CollectFields(Type type, List<FieldInfo> fields, Type requiredFieldType)
+        {
+            for (Type current = type; current != null && current != typeof(object); current = current.BaseType)
+            {
+                FieldInfo[] declaredFields = current.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                foreach (FieldInfo field in declaredFields)
+                {
+                    if (field == null || !requiredFieldType.IsAssignableFrom(field.FieldType))
+                        continue;
+
+                    fields.Add(field);
+                }
+            }
+        }
+
+        private static bool IsPotentialHydrophoneObject(object target)
+        {
+            if (target == null)
+                return false;
+
+            Type type = target.GetType();
+            if (IsPotentialHydrophoneType(type))
+                return true;
+
+            UnityEngine.Object unityObject = target as UnityEngine.Object;
+            if (unityObject != null && IsHydrophoneName(unityObject.name))
+                return true;
+
+            Equipment equipment = target as Equipment;
+            if (equipment != null && equipment.Parameters != null)
+                return HasHydrophoneParameter(equipment.Parameters);
+
+            return false;
+        }
+
+        private static bool IsPotentialHydrophoneType(Type type)
+        {
+            if (type == null || type.IsAbstract || type.ContainsGenericParameters)
+                return false;
+
+            if (type.Namespace != null && type.Namespace.IndexOf("LongSubmerged10x", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+
+            string name = type.FullName;
+            if (string.IsNullOrEmpty(name))
+                name = type.Name;
+
+            return IsHydrophoneName(name);
+        }
+
+        private static bool IsHydrophoneName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            return name.IndexOf("Hydrophone", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Horch", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Listening", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("PassiveSonar", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Gruppenhorch", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Balkon", StringComparison.OrdinalIgnoreCase) >= 0
+                || string.Equals(name.Trim(), "GHG", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name.Trim(), "KDB", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasHydrophoneParameter(ParameterCollection parameters)
+        {
+            if (parameters == null)
+                return false;
+
+            foreach (string key in HydrophoneParameterKeys)
+            {
+                if (GetParameter(parameters, key) != null)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsHydrophoneRefreshMethod(string methodName)
+        {
+            if (string.IsNullOrEmpty(methodName))
+                return false;
+
+            if (methodName.StartsWith("get_", StringComparison.Ordinal) || methodName.StartsWith("set_", StringComparison.Ordinal))
+                return false;
+
+            if (methodName.StartsWith("add_", StringComparison.Ordinal) || methodName.StartsWith("remove_", StringComparison.Ordinal))
+                return false;
+
+            foreach (string directName in DirectRefreshMethodNames)
+            {
+                if (string.Equals(methodName, directName, StringComparison.Ordinal))
+                    return true;
+            }
+
+            bool looksLikeRefresh =
+                methodName.IndexOf("Update", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Apply", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Refresh", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Recalculate", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Calculate", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Validate", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!looksLikeRefresh)
+                return false;
+
+            return methodName.IndexOf("Hydrophone", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Range", StringComparison.OrdinalIgnoreCase) >= 0
+                || methodName.IndexOf("Modifier", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsHydrophoneRangeMemberName(string name, bool ownerLooksHydrophone)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            foreach (string key in HydrophoneParameterKeys)
+            {
+                if (string.Equals(name, key, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            if (IsExcludedRangeName(name))
+                return false;
+
+            bool explicitHydrophone =
+                name.IndexOf("Hydrophone", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("PassiveSonar", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Listening", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Horch", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!explicitHydrophone && !ownerLooksHydrophone)
+                return false;
+
+            return name.IndexOf("Range", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Distance", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Radius", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsExcludedRangeName(string name)
+        {
+            return name.IndexOf("Arc", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Fade", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Angle", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Bearing", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Heading", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Direction", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Rotation", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Fov", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Volume", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Frequency", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Noise", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Speed", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Delay", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Time", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Cooldown", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Duration", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Damage", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Explosion", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Torpedo", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Accuracy", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Performance", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Penalty", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Modifier", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static Parameter GetParameter(ParameterCollection parameters, string key)
+        {
+            try
+            {
+                return parameters.GetParameter(key);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static Type[] GetTypesSafely(Assembly assembly)
+        {
+            try
+            {
+                return assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                return ex.Types;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string GetMemberKey(MemberInfo member)
+        {
+            if (member == null)
+                return string.Empty;
+
+            string declaringType = member.DeclaringType == null ? string.Empty : member.DeclaringType.FullName;
+            return declaringType + "." + member.Name;
+        }
+
+        private static string SafeObjectName(object target)
+        {
+            if (target == null)
+                return "null";
+
+            UnityEngine.Object unityObject = target as UnityEngine.Object;
+            if (unityObject != null)
+                return target.GetType().Name + "(" + unityObject.name + ")";
+
+            return target.GetType().Name;
+        }
+
+        private static float GetFloatTolerance(float reference)
+        {
+            return Math.Max(0.0001f, Math.Abs(reference) * 0.0001f);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static bool TryEnter(object target)
+        {
+            if (target == null)
+                return false;
+
+            return ApplicationGuardIds.Add(RuntimeHelpers.GetHashCode(target));
+        }
+
+        private static void Exit(object target)
+        {
+            if (target == null)
+                return;
+
+            ApplicationGuardIds.Remove(RuntimeHelpers.GetHashCode(target));
+        }
+    }
+
+    internal sealed class MegaSonarObjectPatchData
+    {
+        public readonly Dictionary<string, MegaSonarFloatMemberPatchData> FloatMembers =
+            new Dictionary<string, MegaSonarFloatMemberPatchData>();
+    }
+
+    internal sealed class MegaSonarFloatMemberPatchData
+    {
+        public float OriginalValue;
+        public float LastAppliedFactor;
+
+        public MegaSonarFloatMemberPatchData(float originalValue, float lastAppliedFactor)
+        {
+            OriginalValue = originalValue;
+            LastAppliedFactor = lastAppliedFactor;
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class MegaSonarHydrophoneRefreshPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            return MegaSonarRuntimePatcher.FindHydrophoneTargetMethods();
+        }
+
+        private static void Postfix(object __instance)
+        {
+            MegaSonarRuntimePatcher.ApplyObject(__instance, "hydrophone refresh hook");
+        }
+    }
+
     internal sealed class ParameterScalePatchData
     {
         public readonly Modifier ScaleModifier;
@@ -4196,6 +4970,7 @@ namespace LongSubmerged10x
     report.note("Menu F10 : sliders runtime bornes par profil et bouton Par defaut.")
     report.note("SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant.")
     report.note("Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.")
+    report.note("Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone.")
 
 
 def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | None = None) -> None:
@@ -4213,11 +4988,12 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}",
         f"- Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
-        "- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10",
+        "- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10",
         "- Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie",
         "- Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours",
         f"- Slider SuperVitesse : 1 = vanilla, {args.fast_speed_factor:g} = defaut actuel, 20 = maximum",
         f"- Slider Torpilles : 1 = vanilla, {args.torpedo_damage_factor:g} = maximum",
+        "- Slider Sonar : 1 = vanilla, 3 = defaut actuel, 10 = maximum",
         "- Bouton Par defaut : restaure les reglages du profil actuel",
         f"- Mega torpilles : {'oui' if args.mega_torpedoes else 'non'}",
         f"- Mega torpilles degats : x{args.torpedo_damage_factor:g}",
@@ -4228,7 +5004,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- DudChance torpilles : {args.torpedo_dud_chance:g}",
         f"- Defaillance magnetique torpilles : {args.torpedo_magnetic_failure_chance:g}",
         f"- Explosion magnetique prematuree torpilles : {args.torpedo_premature_magnetic_chance:g}",
-        "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse et Mega Torpilles",
+        "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles et Mega Sonar",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
         f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme",
@@ -4250,6 +5026,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
         "- Les crans rapides consomment plus de carburant pour garder une autonomie logique.",
         "- Les torpilles gardent leur vitesse/portee vanilla ; les degats, explosions, rates et le guidage verrouille sont geres en runtime.",
+        "- Mega Sonar augmente seulement la portee hydrophone ; x1 ou case decochee revient vanilla.",
         "- Le guidage mega met les tirs verrouilles en cible cartésienne dynamique et force l'impact a courte distance.",
         "- La fiabilite parfaite met DudChance, MagneticExplosionFail, MagneticExplosionOnArm et MagneticExplosionAfterArm a 0 quand Mega Torpilles est actif.",
         "- Couper Mega Torpilles remet les torpilles sur les valeurs vanilla, car les XLSX torpilles ne sont pas ecrases.",
@@ -4272,6 +5049,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 "- SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant",
                 f"- Lignes vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}",
                 "- Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee",
+                "- Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone",
             ]
         )
 
@@ -4737,7 +5515,7 @@ def main(argv: list[str]) -> int:
     print(f"  - Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}")
     print(f"  - Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}")
     print(f"  - Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h")
-    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10")
+    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10")
     print(f"  - Mega torpilles : {'OUI' if args.mega_torpedoes else 'NON'}")
     print(f"  - Torpilles degats : x{args.torpedo_damage_factor:g}")
     print(f"  - Torpilles effets visuels rayon explosion : x{args.torpedo_explosion_radius_factor:g}")
@@ -4755,6 +5533,7 @@ def main(argv: list[str]) -> int:
     print(f"  - Vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}")
     print("  - SuperVitesse : runtime F10 reglable 1-20")
     print("  - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10 et effets visuels bornes x3")
+    print("  - Mega Sonar : runtime F10 reglable 1-10, defaut x3")
     print("  - Fiabilite torpilles : runtime F10")
 
     print("\nFichiers générés :")

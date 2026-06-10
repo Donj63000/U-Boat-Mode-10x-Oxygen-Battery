@@ -5,7 +5,7 @@
 <h1 align="center">Long Submerged 10x+</h1>
 
 <p align="center">
-  <strong>A UBOAT gameplay mod for long underwater patrols, infinite battery, runtime tuning, SuperSpeed, and Mega Torpedoes.</strong>
+  <strong>A UBOAT gameplay mod for long underwater patrols, infinite battery, runtime tuning, SuperSpeed, Mega Torpedoes, and Mega Sonar.</strong>
 </p>
 
 <p align="center">
@@ -34,7 +34,8 @@
 | **Infinite Battery** | `Battery = 100` | Holds the submarine energy resource charged during gameplay. |
 | **Long Oxygen** | `Oxygen = 100` | Targets about **90 days underwater** instead of only a few days. |
 | **Mega Torpedoes** | `Torpedoes = 10` | Scales damage, crew damage, blast radius, visual blast radius, and explosion intensity. |
-| **SuperSpeed** | `SuperSpeed = 3.5` | Boosts the two fastest forward gears for faster travel. |
+| **Mega Sonar** | `Sonar = 3` | Scales hydrophone listening range while leaving arcs and surface modifiers alone. |
+| **SuperSpeed** | `SuperSpeed = 8` | Boosts the two fastest forward gears for faster travel. |
 | **Runtime Menu** | `F10` | Lets you tune the mod in game without rebuilding the mod files. |
 
 > [!IMPORTANT]
@@ -77,8 +78,9 @@ Press `F10` after loading a save. Press `F10` again or `Escape` to close the men
 | --- | ---: | ---: | ---: |
 | **Battery** | `1` | `100` | `100`, infinite battery hold |
 | **Oxygen** | `1` | `100` | `100`, about 90 days underwater |
-| **SuperSpeed** | `1` | `3.5` | `100` |
-| **Torpedoes** | `1` | `10` | `100` |
+| **SuperSpeed** | `1` | `8` | `20` |
+| **Torpedoes** | `1` | `10` | `10` |
+| **Sonar** | `1` | `3` | `10` |
 
 The menu includes:
 
