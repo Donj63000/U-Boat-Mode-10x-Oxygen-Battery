@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.4.8
+Long Submerged 10x+ v1.4.13
 
 Paramètres utilisés :
 - Oxygene long : applique au runtime sur le drain negatif de respiration
@@ -6,17 +6,19 @@ Paramètres utilisés :
 - Discipline/fatigue sous l'eau : divisé par 15
 - Batterie / Accumulators : x10
 - EnergyUsage consommateurs hors ventilation/compresseurs : x0.1 dans les datasheets
-- Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum
+- Mega Batterie runtime : case F10 active = batterie infinie, pompe incluse
 - EnergyUsage recharge/production batterie : vanilla
 - Deux derniers crans avant : vitesse/propulsion x8
 - Deux derniers crans avant : carburant x8
 - Vitesse max sous-marin joueur : 45 km/h
-- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10
-- Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie
+- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3
+- Slider Batterie : valeur legacy conservee, l'infini depend seulement de la case Mega Batterie
 - Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours
 - Slider SuperVitesse : 1 = vanilla, 8 = defaut actuel, 20 = maximum
 - Slider Torpilles : 1 = vanilla, 10 = maximum
 - Slider Sonar : 1 = vanilla, 3 = defaut actuel, 10 = maximum
+- Blindage lourd : case desactivee par defaut, activable dans F10, degats joueur divises par 3 quand activee
+- Super discrétion : case desactivee par defaut, bruit et detectabilite joueur divises par 3 quand activee
 - Bouton Par defaut : restaure les reglages du profil actuel
 - Mega torpilles : oui
 - Mega torpilles degats : x10
@@ -27,10 +29,10 @@ Paramètres utilisés :
 - DudChance torpilles : 0
 - Defaillance magnetique torpilles : 0
 - Explosion magnetique prematuree torpilles : 0
-- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles et Mega Sonar
+- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd et Super discrétion
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_4_8, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme
+- Patch runtime : LongSubmerged10xPatch_1_4_13, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, menu et stabilite surface/alarme
 
 Installation :
 1. Fermer UBOAT.
@@ -44,7 +46,11 @@ Notes :
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.
 - Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.
-- Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.
+- Mega Batterie cochee rend la batterie infinie ; decochee, la batterie revient vanilla.
+- Blindage lourd est desactive par defaut ; coche dans F10, il divise les degats joueur par 3 sans rendre le sous-marin immortel.
+- Migration v16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois, puis tes choix F10 sont conserves.
+- Super discrétion cochee divise le bruit et les detectabilites joueur par 3 sans supprimer les contacts ennemis.
+- La profondeur d'ecrasement reste vanilla : depasser la limite critique peut toujours etre fatal.
 - Les sliders F10 sont persistants et s'appliquent en partie avec un debounce ou Reappliquer maintenant.
 - Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.
 - Les crans rapides consomment plus de carburant pour garder une autonomie logique.
@@ -62,9 +68,11 @@ Compteurs de génération :
 - Lignes batterie : 3
 - Lignes EnergyUsage consommation : 6
 - Lignes EnergyUsage recharge : 0
-- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum
-- Menu F10 : sliders runtime bornes par profil et bouton Par defaut
+- Mega Batterie : case F10 active = batterie infinie, pompe incluse
+- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3 et bouton Par defaut
 - SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant
 - Lignes vitesse sous-marin joueur : 0
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee
 - Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone
+- Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3
+- Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3

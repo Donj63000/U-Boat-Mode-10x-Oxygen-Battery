@@ -47,9 +47,9 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 MOD_FOLDER_NAME = "LongSubmerged10x"
 MOD_DISPLAY_NAME = "Long Submerged 10x+"
-MOD_VERSION = "1.4.8"
+MOD_VERSION = "1.4.13"
 MOD_AUTHOR = "VotreNomOuVotreEquipe"
-MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_8"
+MOD_ASSEMBLY_NAME = "LongSubmerged10xPatch_1_4_13"
 
 DEFAULT_GAME_VERSION = "2026.1 Patch 20"
 
@@ -1403,11 +1403,13 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
         "Immersion longue : oxygene runtime calibre 1=vanilla et 100=environ 90 jours, "
         "recharge surface vanilla, aucune capacite d'air XLSX modifiee, "
         f"discipline x1/{args.discipline_factor:g}, "
-        "batterie reglable 1=vanilla, 10=x10, 100=infinie, "
+        "Mega Batterie rend la batterie infinie des que la case F10 est cochee, "
         "consommation electrique runtime restauree proprement, "
         "SuperVitesse reglable 1=x1 a 20=x20 sur les crans rapides, "
         "torpilles reglables 1=x1 a 10=x10, "
         "sonar hydrophone reglable 1=x1 a 10=x10, defaut x3, "
+        "Blindage lourd F10 desactive par defaut avec degats joueur divisibles par 3 quand active, "
+        "Super discrétion F10 desactivee par defaut avec bruit et detectabilite joueur divisibles par 3, "
         "menu runtime F10 debounce pour eviter les freezes de slider, "
         "AirCompressor et Ventilation vanilla."
     )
@@ -1431,8 +1433,11 @@ using System.Text;
 using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Core.Data;
+using UBOAT.Game.Scene.Characters;
 using UBOAT.Game.Scene.Entities;
 using UBOAT.Game.Scene.Items;
+using UBOAT.Game.Scene.Utilities;
+using UBOAT.Game.Sandbox;
 using UBOAT.Game.UI.Notifications;
 using UBOAT.Game.UI.Resources;
 using UnityEngine;
@@ -1468,7 +1473,7 @@ namespace LongSubmerged10x
 
             // DonJ : je patche chaque hook un par un. Un patch rate ne doit jamais empecher la batterie,
             // l'oxygene, les torpilles ou le menu de continuer a fonctionner avec les autres hooks valides.
-            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix148"));
+            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix1413"));
 
             try
             {
@@ -1494,6 +1499,7 @@ namespace LongSubmerged10x
             typeof(PlayerShipAwakePatch),
             typeof(PlayerShipOnAfterDeserializePatch),
             typeof(PlayerShipUpdatePatch),
+            typeof(ResourceUpdateAmountBatteryPatch),
             typeof(PlayerShipValidateTargetVelocityPatch),
             typeof(PlayerShipSavesManagerOnLoadedPatch),
             typeof(PlayerShipCrewAddedPatch),
@@ -1512,6 +1518,20 @@ namespace LongSubmerged10x
             typeof(TorpedoFixedUpdatePatch),
             typeof(TorpedoDetonatePatch),
             typeof(MegaSonarHydrophoneRefreshPatch),
+            typeof(SuperStealthEntityUpdateDetectabilityPatch),
+            typeof(SuperStealthAirCompressorOnEnablePatch),
+            typeof(SuperStealthAirCompressorOnDisablePatch),
+            typeof(SuperStealthVentilationOnEnablePatch),
+            typeof(SuperStealthVentilationOnDisablePatch),
+            typeof(SuperStealthPropellerPowerPatch),
+            typeof(SuperStealthPropellerPowerMultiplierPatch),
+            typeof(SuperStealthSnorkelUpdatePatch),
+            typeof(SuperStealthPeriscopeUpdatePatch),
+            typeof(HeavyArmorHullAddDamagePatch),
+            typeof(HeavyArmorEquipmentAddDamagePatch),
+            typeof(HeavyArmorEquipmentAddWaterDamagePatch),
+            typeof(HeavyArmorPlayableCharacterAddDamagePatch),
+            typeof(HeavyArmorDamageUtilityDoApplyDamagePatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
             typeof(ResourceGuiUpdateDisplayedValuePatch)
         };
@@ -1540,7 +1560,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 12;
+        private const int RuntimeSettingsVersion = 16;
 
         public const float MinRuntimeFactor = 1f;
         public const float BatteryMaxFactor = 100f;
@@ -1548,6 +1568,8 @@ namespace LongSubmerged10x
         public const float SpeedMaxFactor = 20f;
         public const float TorpedoMaxFactor = 10f;
         public const float SonarMaxFactor = 10f;
+        public const float HeavyArmorDamageFactor = 3f;
+        public const float SuperStealthFactor = 3f;
 
         // Compatibilite interne : les anciens blocs utilisaient MaxRuntimeFactor pour Batterie/Oxygene.
         // Les sliders vitesse, torpilles et sonar ont maintenant leurs propres bornes.
@@ -1558,13 +1580,13 @@ namespace LongSubmerged10x
         private const bool DefaultSuperSpeed = true;
         private const bool DefaultMegaTorpedoes = __DEFAULT_MEGA_TORPEDOES__;
         private const bool DefaultMegaSonar = true;
+        private const bool DefaultHeavyArmor = false;
+        private const bool DefaultSuperStealth = false;
 
-        // DonJ : defauts lisibles en jeu.
-        // Batterie x10 finie par defaut, cran 100 = batterie infinie.
-        // Oxygene 100 = profil calibre environ 90 jours.
-        // Vitesse x8 par defaut, reglable jusqu'a x20.
-        // Torpilles x10 maximum.
-        // Sonar x3 par defaut, reglable de x1 vanilla a x10.
+        // DonJ: readable in-game defaults. Mega Batterie now means a fully infinite battery.
+        // The battery slider is kept only as a saved legacy value and no longer gates infinity.
+        // Oxygen 100 is calibrated around 90 days, speed defaults to x8, torpedoes to x10,
+        // and sonar defaults to x3 while remaining adjustable up to x10.
         private const float DefaultBatteryFactor = 10f;
         private const float DefaultOxygenFactor = 100f;
         private const float DefaultSpeedFactor = __FAST_SPEED_FACTOR__;
@@ -1576,6 +1598,8 @@ namespace LongSubmerged10x
         public static bool SuperSpeed = DefaultSuperSpeed;
         public static bool MegaTorpedoes = DefaultMegaTorpedoes;
         public static bool MegaSonar = DefaultMegaSonar;
+        public static bool HeavyArmor = DefaultHeavyArmor;
+        public static bool SuperStealth = DefaultSuperStealth;
         public static float BatteryFactor = DefaultBatteryFactor;
         public static float OxygenFactor = DefaultOxygenFactor;
         public static float SpeedFactor = DefaultSpeedFactor;
@@ -1591,6 +1615,8 @@ namespace LongSubmerged10x
             SuperSpeed = ReadBool("SuperSpeed", DefaultSuperSpeed);
             MegaTorpedoes = ReadBool("MegaTorpedoes", DefaultMegaTorpedoes);
             MegaSonar = ReadBool("MegaSonar", DefaultMegaSonar);
+            HeavyArmor = ReadBool("HeavyArmor", DefaultHeavyArmor);
+            SuperStealth = ReadBool("SuperStealth", DefaultSuperStealth);
 
             BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor, BatteryMaxFactor);
             OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor, OxygenMaxFactor);
@@ -1600,7 +1626,10 @@ namespace LongSubmerged10x
 
             if (savedVersion < RuntimeSettingsVersion)
             {
-                // Migration douce : on conserve les reglages existants et on ajoute seulement les nouvelles cles.
+                // Keep existing runtime choices, but force Heavy Armor off once after its default changed.
+                if (savedVersion < 16)
+                    HeavyArmor = false;
+
                 Save();
                 Debug.Log("[LongSubmerged10x] Runtime settings migrated to v" + RuntimeSettingsVersion + ".");
             }
@@ -1619,6 +1648,8 @@ namespace LongSubmerged10x
             PlayerPrefs.SetInt(PrefPrefix + "SuperSpeed", SuperSpeed ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaTorpedoes", MegaTorpedoes ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaSonar", MegaSonar ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "HeavyArmor", HeavyArmor ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "SuperStealth", SuperStealth ? 1 : 0);
             PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", BatteryFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", OxygenFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", SpeedFactor);
@@ -1635,6 +1666,8 @@ namespace LongSubmerged10x
             SuperSpeed = DefaultSuperSpeed;
             MegaTorpedoes = DefaultMegaTorpedoes;
             MegaSonar = DefaultMegaSonar;
+            HeavyArmor = DefaultHeavyArmor;
+            SuperStealth = DefaultSuperStealth;
             BatteryFactor = DefaultBatteryFactor;
             OxygenFactor = DefaultOxygenFactor;
             SpeedFactor = DefaultSpeedFactor;
@@ -1709,6 +1742,8 @@ namespace LongSubmerged10x
         private Toggle superSpeedToggle;
         private Toggle megaTorpedoesToggle;
         private Toggle megaSonarToggle;
+        private Toggle heavyArmorToggle;
+        private Toggle superStealthToggle;
         private Slider batteryFactorSlider;
         private Slider oxygenFactorSlider;
         private Slider speedFactorSlider;
@@ -1890,7 +1925,7 @@ namespace LongSubmerged10x
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(28f, -82f);
-            panelRect.sizeDelta = new Vector2(470f, 600f);
+            panelRect.sizeDelta = new Vector2(470f, 680f);
 
             CreateText(panelObject.transform, "Title", "Long Submerged 10x+", 20, FontStyle.Bold, new Vector2(18f, -16f), new Vector2(410f, 30f));
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
@@ -1910,10 +1945,13 @@ namespace LongSubmerged10x
             megaSonarToggle = CreateToggle(panelObject.transform, "Mega Sonar", new Vector2(20f, -386f));
             sonarFactorSlider = CreateFactorSlider(panelObject.transform, "Hydrophone portee", LongSubmergedRuntimeSettings.SonarMaxFactor, new Vector2(20f, -422f), out sonarFactorValueText);
 
-            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -510f), new Vector2(140f, 38f));
+            heavyArmorToggle = CreateToggle(panelObject.transform, "Blindage lourd", new Vector2(20f, -462f));
+            superStealthToggle = CreateToggle(panelObject.transform, "Super discrétion", new Vector2(20f, -498f));
+
+            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -590f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
 
-            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -510f), new Vector2(220f, 38f));
+            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -590f), new Vector2(220f, 38f));
             refreshButton.onClick.AddListener(OnRefreshClicked);
         }
 
@@ -1984,6 +2022,8 @@ namespace LongSubmerged10x
             LongSubmergedRuntimeSettings.SuperSpeed = superSpeedToggle != null && superSpeedToggle.isOn;
             LongSubmergedRuntimeSettings.MegaTorpedoes = megaTorpedoesToggle != null && megaTorpedoesToggle.isOn;
             LongSubmergedRuntimeSettings.MegaSonar = megaSonarToggle != null && megaSonarToggle.isOn;
+            LongSubmergedRuntimeSettings.HeavyArmor = heavyArmorToggle != null && heavyArmorToggle.isOn;
+            LongSubmergedRuntimeSettings.SuperStealth = superStealthToggle != null && superStealthToggle.isOn;
             LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor);
@@ -2026,6 +2066,12 @@ namespace LongSubmerged10x
             if (megaSonarToggle != null)
                 megaSonarToggle.isOn = LongSubmergedRuntimeSettings.MegaSonar;
 
+            if (heavyArmorToggle != null)
+                heavyArmorToggle.isOn = LongSubmergedRuntimeSettings.HeavyArmor;
+
+            if (superStealthToggle != null)
+                superStealthToggle.isOn = LongSubmergedRuntimeSettings.SuperStealth;
+
             SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             SetSliderValue(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedFactor, LongSubmergedRuntimeSettings.SpeedMaxFactor);
@@ -2043,7 +2089,7 @@ namespace LongSubmerged10x
                 batteryFactorSlider,
                 LongSubmergedRuntimeSettings.BatteryMaxFactor,
                 "x",
-                batteryFactorSlider != null && batteryFactorSlider.value >= LongSubmergedRuntimeSettings.BatteryMaxFactor ? "inf" : null
+                LongSubmergedRuntimeSettings.MegaBattery ? "inf" : null
             );
 
             SetFactorLabel(
@@ -2489,6 +2535,7 @@ namespace LongSubmerged10x
             OxygenBreathRecalculator.Recalculate(ship, reason);
             ApplyBatteryResource(ship, reason);
             EngineFastSpeedPatcher.PatchPlayerShip(ship, reason);
+            SuperStealthRuntimePatcher.ApplyPlayerShip(ship, reason);
         }
 
         public static void ApplyBatteryResource(PlayerShip ship, string reason)
@@ -2528,8 +2575,8 @@ namespace LongSubmerged10x
             if (energy == null || energy.Capacity == null)
                 return;
 
-            // DonJ : le cran Batterie 100 ne fait pas juste "moins consommer" ;
-            // il ajoute une capacite enorme pour que l'UI et le gameplay voient une batterie nucleaire.
+            // DonJ: Mega Batterie does not merely reduce consumption; it adds a huge
+            // capacity so the UI and gameplay see a nuclear battery immediately.
             float baseCapacity = energy.Capacity.GetValueExcludingModifier(RuntimeNuclearBatteryCapacityModifierName);
             float targetCapacity = baseCapacity;
 
@@ -2572,6 +2619,30 @@ namespace LongSubmerged10x
             try
             {
                 if (!IsPlayerShipEnergyResource(resource))
+                    return false;
+
+                ApplyBatteryRuntimeToResource(resource, reason);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                return false;
+            }
+        }
+
+        public static bool TryFreezeInfiniteBatteryResource(Resource resource, string reason)
+        {
+            try
+            {
+                if (!IsInfiniteBatteryRuntimeActive())
+                    return false;
+
+                if (!IsPlayerShipEnergyResource(resource))
+                    return false;
+
+                double capacity = GetResourceCapacity(resource);
+                if (!IsUsableResourceValue(capacity) || capacity <= 0.0)
                     return false;
 
                 ApplyBatteryRuntimeToResource(resource, reason);
@@ -2639,7 +2710,7 @@ namespace LongSubmerged10x
             builder.AppendLine("Capacite de la batterie 100 %");
             builder.AppendLine("Mega Batterie : batterie nucleaire active.");
             builder.AppendLine("La batterie est maintenue au maximum par Long Submerged 10x+.");
-            builder.AppendLine("Passe le slider Batterie sous 100 pour retrouver une duree finie.");
+            builder.AppendLine("Decoche Mega Batterie dans F10 pour revenir a la batterie vanilla.");
             return builder.ToString();
         }
 
@@ -2685,7 +2756,7 @@ namespace LongSubmerged10x
             if (!LongSubmergedRuntimeSettings.MegaBattery)
                 return LongSubmergedRuntimeSettings.MinRuntimeFactor;
 
-            return LongSubmergedRuntimeSettings.ClampBatteryFactor(LongSubmergedRuntimeSettings.BatteryFactor);
+            return LongSubmergedRuntimeSettings.BatteryMaxFactor;
         }
 
         private static void ApplyBatteryGainParameter(Parameter parameter, float factor)
@@ -2696,8 +2767,8 @@ namespace LongSubmerged10x
             float baseValue = parameter.GetValueExcludingModifier(RuntimeBatteryGainModifierName);
             float desiredValue = baseValue;
 
-            // DonJ : le slider Batterie regle les durees finies via la capacite.
-            // Ici je coupe seulement le gain negatif au cran 100 pour eviter un double xN sur les autres valeurs.
+            // DonJ: Mega Batterie is the single switch for infinity, so every negative
+            // battery gain is neutralized without depending on the legacy slider value.
             if (factor >= LongSubmergedRuntimeSettings.BatteryMaxFactor - 0.0001f && baseValue < 0f)
                 desiredValue = 0f;
 
@@ -3110,9 +3181,8 @@ namespace LongSubmerged10x
 
         private static float GetEffectiveBatteryEnergyUsageScale()
         {
-            // DonJ : pour les valeurs finies, la duree est pilotee par la capacite :
-            // 1 = vanilla, 4 = x4, 99 = x99. Je restaure donc le fallback XLSX x0.1 vers vanilla.
-            // Au cran 100, je coupe explicitement les consommateurs electriques pour que l'UI et le jeu voient l'infini.
+            // DonJ: Mega Batterie is now fully infinite as soon as the toggle is on.
+            // With the toggle off, restore the XLSX fallback x0.1 back to vanilla.
             if (IsInfiniteBatteryRuntimeActive())
                 return 0f;
 
@@ -3121,9 +3191,7 @@ namespace LongSubmerged10x
 
         private static bool IsInfiniteBatteryRuntimeActive()
         {
-            return LongSubmergedRuntimeSettings.MegaBattery
-                && LongSubmergedRuntimeSettings.ClampBatteryFactor(LongSubmergedRuntimeSettings.BatteryFactor)
-                    >= LongSubmergedRuntimeSettings.BatteryMaxFactor;
+            return LongSubmergedRuntimeSettings.MegaBattery;
         }
 
         private static bool IsFinite(Vector3 value)
@@ -4247,6 +4315,293 @@ namespace LongSubmerged10x
         public Vector3 OriginalTargetPositionForReports;
     }
 
+    internal static class SuperStealthRuntimePatcher
+    {
+        private const string SuperStealthScaleModifierName = "LongSubmerged10x Super Stealth Runtime";
+
+        private static readonly ConditionalWeakTable<Parameter, ParameterScalePatchData> StealthScaleData =
+            new ConditionalWeakTable<Parameter, ParameterScalePatchData>();
+
+        private static readonly HashSet<int> ApplicationGuardIds = new HashSet<int>();
+
+        public static void ApplyPlayerShip(PlayerShip ship, string reason)
+        {
+            if (ship == null)
+                return;
+
+            if (!TryEnter(ship))
+                return;
+
+            try
+            {
+                float scale = GetEffectiveStealthScale();
+
+                ApplyParameter(ship.CrewNoiseModifier, scale);
+                ApplyParameter(ship.StationaryNoise, scale);
+                ApplyEntityDetectability(ship, scale);
+                ApplySandboxDetectability(ship, scale);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Super discrétion skipped after " + reason + " -> " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                Exit(ship);
+            }
+        }
+
+        public static void ApplyEntity(Entity entity, string reason)
+        {
+            ApplyPlayerShip(entity as PlayerShip, reason);
+        }
+
+        public static void ApplyEquipment(Component component, string reason)
+        {
+            PlayerShip owner = GetPlayerShipOwner(component);
+            if (owner == null)
+                return;
+
+            // Equipment noise feeds the player's final detectability parameters. Reapply the player-level
+            // scale after vanilla component updates instead of scaling the same contribution twice.
+            ApplyPlayerShip(owner, reason);
+        }
+
+        private static void ApplyEntityDetectability(Entity entity, float scale)
+        {
+            if (entity == null)
+                return;
+
+            ApplyParameter(entity.HydrophoneDetectability, scale);
+            ApplyParameter(entity.SonarDetectability, scale);
+            ApplyParameter(entity.VisualDetectability, scale);
+            ApplyParameter(entity.RadarDetectorDetectability, scale);
+        }
+
+        private static void ApplySandboxDetectability(Entity entity, float scale)
+        {
+            if (entity == null)
+                return;
+
+            SandboxEntity sandboxEntity = null;
+
+            try
+            {
+                sandboxEntity = entity.SandboxEntity;
+            }
+            catch
+            {
+                sandboxEntity = null;
+            }
+
+            if (sandboxEntity == null)
+                return;
+
+            ApplyParameter(sandboxEntity.HydrophoneDetectability, scale);
+            ApplyParameter(sandboxEntity.RadarDetectability, scale);
+            ApplyParameter(sandboxEntity.IndirectVisualDetectability, scale);
+            ApplyParameter(sandboxEntity.SignatureRadius, scale);
+        }
+
+        private static void ApplyParameter(Parameter parameter, float scale)
+        {
+            if (parameter == null)
+                return;
+
+            ParameterScalePatchData data;
+            if (!StealthScaleData.TryGetValue(parameter, out data))
+            {
+                data = new ParameterScalePatchData(parameter.AddScaleModifier(SuperStealthScaleModifierName, false));
+                StealthScaleData.Add(parameter, data);
+            }
+
+            if (data.ScaleModifier == null)
+                return;
+
+            if (Math.Abs(data.ScaleModifier.Value - scale) > 0.0001f)
+                data.ScaleModifier.Value = scale;
+        }
+
+        private static PlayerShip GetPlayerShipOwner(Component component)
+        {
+            if (component == null)
+                return null;
+
+            try
+            {
+                return component.GetComponentInParent<PlayerShip>();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static float GetEffectiveStealthScale()
+        {
+            if (!LongSubmergedRuntimeSettings.SuperStealth)
+                return 1f;
+
+            return 1f / LongSubmergedRuntimeSettings.SuperStealthFactor;
+        }
+
+        private static bool TryEnter(object target)
+        {
+            if (target == null)
+                return false;
+
+            return ApplicationGuardIds.Add(RuntimeHelpers.GetHashCode(target));
+        }
+
+        private static void Exit(object target)
+        {
+            if (target == null)
+                return;
+
+            ApplicationGuardIds.Remove(RuntimeHelpers.GetHashCode(target));
+        }
+    }
+
+    internal static class HeavyArmorRuntimePatcher
+    {
+        [ThreadStatic]
+        private static int damageScaleScopeDepth;
+
+        public static void ScalePlayerEquipmentDamage(Equipment equipment, ref float damage)
+        {
+            TryScalePlayerEquipmentDamage(equipment, ref damage);
+        }
+
+        public static bool TryScalePlayerEquipmentDamage(Equipment equipment, ref float damage)
+        {
+            if (!ShouldScaleDamage(damage) || !IsPlayerShipEquipment(equipment))
+                return false;
+
+            damage = ScaleDamage(damage);
+            return true;
+        }
+
+        public static void ScalePlayerCharacterDamage(PlayableCharacter character, ref float damage)
+        {
+            if (!ShouldScaleDamage(damage) || !IsPlayerCrewMember(character))
+                return;
+
+            damage = ScaleDamage(damage);
+        }
+
+        public static void ScalePlayerCrewAndEffects(
+            Ship target,
+            Vector3 position,
+            float damageRadius,
+            ref float crewDamage,
+            ref float damageEffectsIntensity
+        )
+        {
+            if (!IsHeavyArmorActive() || !CouldAffectPlayerShip(target, position, damageRadius))
+                return;
+
+            if (ShouldScaleRawValue(crewDamage))
+                crewDamage = ScaleDamage(crewDamage);
+
+            if (ShouldScaleRawValue(damageEffectsIntensity))
+                damageEffectsIntensity = ScaleDamage(damageEffectsIntensity);
+        }
+
+        public static void BeginDamageScaleScope(bool scaled)
+        {
+            if (scaled)
+                damageScaleScopeDepth++;
+        }
+
+        public static void EndDamageScaleScope(bool scaled)
+        {
+            if (!scaled)
+                return;
+
+            if (damageScaleScopeDepth > 0)
+                damageScaleScopeDepth--;
+        }
+
+        private static bool ShouldScaleDamage(float damage)
+        {
+            return IsHeavyArmorActive() && !IsDamageScaleScopeActive() && ShouldScaleRawValue(damage);
+        }
+
+        private static bool IsDamageScaleScopeActive()
+        {
+            return damageScaleScopeDepth > 0;
+        }
+
+        private static bool ShouldScaleRawValue(float value)
+        {
+            return IsFinite(value) && value > 0f;
+        }
+
+        private static float ScaleDamage(float value)
+        {
+            return value / LongSubmergedRuntimeSettings.HeavyArmorDamageFactor;
+        }
+
+        private static bool IsHeavyArmorActive()
+        {
+            return LongSubmergedRuntimeSettings.HeavyArmor
+                && LongSubmergedRuntimeSettings.HeavyArmorDamageFactor > 1.0001f;
+        }
+
+        private static bool IsPlayerShipEquipment(Equipment equipment)
+        {
+            if (equipment == null)
+                return false;
+
+            try
+            {
+                return equipment.GetComponentInParent<PlayerShip>() != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsPlayerCrewMember(PlayableCharacter character)
+        {
+            if (character == null)
+                return false;
+
+            try
+            {
+                return character.GetComponentInParent<PlayerShip>() != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool CouldAffectPlayerShip(Ship target, Vector3 position, float damageRadius)
+        {
+            if (target is PlayerShip)
+                return true;
+
+            if (target != null)
+                return false;
+
+            PlayerShip playerShip = UnityEngine.Object.FindObjectOfType<PlayerShip>();
+            if (playerShip == null)
+                return false;
+
+            // Area damage often has no explicit target, so use a hull-length guard around the blast radius.
+            float guardRadius = Mathf.Max(1f, damageRadius) + 80f;
+            Vector3 delta = playerShip.transform.position - position;
+            return delta.sqrMagnitude <= guardRadius * guardRadius;
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+    }
+
     internal static class OxygenBreathRecalculator
     {
         private static readonly MethodInfo ValidateOxygenBreathModifierMethod =
@@ -4734,14 +5089,32 @@ namespace LongSubmerged10x
     {
         private static void Postfix(PlayerShip __instance)
         {
-            // DonJ : je maintiens la batterie ici, apres la frame du sous-marin.
-            // Je ne patche plus Resource.UpdateAmount depuis 1.4.7, parce que cette methode sert aussi
-            // a Oxygen pendant la recharge de surface et doit rester 100 % vanilla.
+            // DonJ: I keep the battery full after the submarine frame.
+            // Resource.UpdateAmount is also guarded below, but only for PlayerShip.Energy.
             LongSubmergedRuntimeApplier.ApplyBatteryResource(__instance, "PlayerShip.Update");
 
             // DonJ : la vitesse est un etat runtime du bateau et du cran moteur actif.
             // On la remet ici pour que le slider F10 et les changements de cran soient visibles immediatement.
             EngineFastSpeedPatcher.UpdatePlayerShipRuntime(__instance, "PlayerShip.Update");
+
+            SuperStealthRuntimePatcher.ApplyPlayerShip(__instance, "PlayerShip.Update");
+        }
+    }
+
+    [HarmonyPatch(typeof(Resource), "UpdateAmount")]
+    internal static class ResourceUpdateAmountBatteryPatch
+    {
+        private static bool Prefix(Resource __instance)
+        {
+            if (LongSubmergedRuntimeApplier.TryFreezeInfiniteBatteryResource(
+                __instance,
+                "Resource.UpdateAmount.Prefix"
+            ))
+            {
+                return false;
+            }
+
+            return true;
         }
     }
 
@@ -4940,6 +5313,162 @@ namespace LongSubmerged10x
             LongSubmergedRuntimeApplier.ApplyLaunchedTorpedo(__instance, "Torpedo.Detonate");
         }
     }
+
+    [HarmonyPatch(typeof(Entity), "UpdateDetectability")]
+    internal static class SuperStealthEntityUpdateDetectabilityPatch
+    {
+        private static void Postfix(Entity __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEntity(__instance, "Entity.UpdateDetectability");
+        }
+    }
+
+    [HarmonyPatch(typeof(AirCompressor), "OnEnable")]
+    internal static class SuperStealthAirCompressorOnEnablePatch
+    {
+        private static void Postfix(AirCompressor __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "AirCompressor.OnEnable");
+        }
+    }
+
+    [HarmonyPatch(typeof(AirCompressor), "OnDisable")]
+    internal static class SuperStealthAirCompressorOnDisablePatch
+    {
+        private static void Postfix(AirCompressor __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "AirCompressor.OnDisable");
+        }
+    }
+
+    [HarmonyPatch(typeof(Ventilation), "OnEnable")]
+    internal static class SuperStealthVentilationOnEnablePatch
+    {
+        private static void Postfix(Ventilation __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "Ventilation.OnEnable");
+        }
+    }
+
+    [HarmonyPatch(typeof(Ventilation), "OnDisable")]
+    internal static class SuperStealthVentilationOnDisablePatch
+    {
+        private static void Postfix(Ventilation __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "Ventilation.OnDisable");
+        }
+    }
+
+    [HarmonyPatch(typeof(Propeller), "set_Power")]
+    internal static class SuperStealthPropellerPowerPatch
+    {
+        private static void Postfix(Propeller __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "Propeller.set_Power");
+        }
+    }
+
+    [HarmonyPatch(typeof(Propeller), "set_PowerMultiplier")]
+    internal static class SuperStealthPropellerPowerMultiplierPatch
+    {
+        private static void Postfix(Propeller __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "Propeller.set_PowerMultiplier");
+        }
+    }
+
+    [HarmonyPatch(typeof(Snorkel), "Update")]
+    internal static class SuperStealthSnorkelUpdatePatch
+    {
+        private static void Postfix(Snorkel __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "Snorkel.Update");
+        }
+    }
+
+    [HarmonyPatch(typeof(Periscope), "Update")]
+    internal static class SuperStealthPeriscopeUpdatePatch
+    {
+        private static void Postfix(Periscope __instance)
+        {
+            SuperStealthRuntimePatcher.ApplyEquipment(__instance, "Periscope.Update");
+        }
+    }
+
+    [HarmonyPatch(typeof(Hull), "AddDamage")]
+    internal static class HeavyArmorHullAddDamagePatch
+    {
+        private static void Prefix(Hull __instance, ref float damage, out bool __state)
+        {
+            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(__instance, ref damage);
+            HeavyArmorRuntimePatcher.BeginDamageScaleScope(__state);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            HeavyArmorRuntimePatcher.EndDamageScaleScope(__state);
+        }
+    }
+
+    [HarmonyPatch(typeof(Equipment), "AddDamage")]
+    internal static class HeavyArmorEquipmentAddDamagePatch
+    {
+        private static void Prefix(Equipment __instance, ref float damage, out bool __state)
+        {
+            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(__instance, ref damage);
+            HeavyArmorRuntimePatcher.BeginDamageScaleScope(__state);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            HeavyArmorRuntimePatcher.EndDamageScaleScope(__state);
+        }
+    }
+
+    [HarmonyPatch(typeof(Equipment), "AddWaterDamage")]
+    internal static class HeavyArmorEquipmentAddWaterDamagePatch
+    {
+        private static void Prefix(Equipment __instance, ref float damage, out bool __state)
+        {
+            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(__instance, ref damage);
+            HeavyArmorRuntimePatcher.BeginDamageScaleScope(__state);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            HeavyArmorRuntimePatcher.EndDamageScaleScope(__state);
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayableCharacter), "AddDamage")]
+    internal static class HeavyArmorPlayableCharacterAddDamagePatch
+    {
+        private static void Prefix(PlayableCharacter __instance, ref float damage)
+        {
+            HeavyArmorRuntimePatcher.ScalePlayerCharacterDamage(__instance, ref damage);
+        }
+    }
+
+    [HarmonyPatch(typeof(DamageUtility), "DoApplyDamage")]
+    internal static class HeavyArmorDamageUtilityDoApplyDamagePatch
+    {
+        private static void Prefix(
+            Vector3 position,
+            float damageRadius,
+            ref float crewDamage,
+            ref float damageEffectsIntensity,
+            Ship target
+        )
+        {
+            HeavyArmorRuntimePatcher.ScalePlayerCrewAndEffects(
+                target,
+                position,
+                damageRadius,
+                ref crewDamage,
+                ref damageEffectsIntensity
+            );
+        }
+    }
 }
 '''
 
@@ -4963,14 +5492,17 @@ namespace LongSubmerged10x
     report.note(
         "Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, "
         "chargement de sauvegarde et changement d'equipage, plus vitesse rapide, "
-        "plafond runtime, propulseurs, carburant rapide, menu F10 et toggles mega."
+        "plafond runtime, propulseurs, carburant rapide, menu F10, toggles mega, blindage lourd et super discretion."
     )
-    report.note("Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum.")
+    report.note("Mega Batterie : la case F10 rend la batterie infinie et maintient la ressource au maximum.")
     report.note("Mega Oxygene : profil par defaut calibre pour environ 90 jours.")
     report.note("Menu F10 : sliders runtime bornes par profil et bouton Par defaut.")
     report.note("SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant.")
     report.note("Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.")
     report.note("Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone.")
+    report.note("Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3 sans toucher a la profondeur d'ecrasement.")
+    report.note("Blindage lourd : migration v16 force la case sur OFF une seule fois pour les installations existantes.")
+    report.note("Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.")
 
 
 def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | None = None) -> None:
@@ -4983,17 +5515,19 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Discipline/fatigue sous l'eau : divisé par {args.discipline_factor:g}",
         f"- Batterie / Accumulators : x{args.battery_capacity_factor:g}",
         f"- EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g} dans les datasheets",
-        "- Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum",
+        "- Mega Batterie runtime : case F10 active = batterie infinie, pompe incluse",
         "- EnergyUsage recharge/production batterie : vanilla",
         f"- Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}",
         f"- Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
-        "- Sliders F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10",
-        "- Slider Batterie : 1 = vanilla, 4 = duree x4, 99 = duree x99, 100 = batterie infinie",
+        "- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3",
+        "- Slider Batterie : valeur legacy conservee, l'infini depend seulement de la case Mega Batterie",
         "- Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours",
         f"- Slider SuperVitesse : 1 = vanilla, {args.fast_speed_factor:g} = defaut actuel, 20 = maximum",
         f"- Slider Torpilles : 1 = vanilla, {args.torpedo_damage_factor:g} = maximum",
         "- Slider Sonar : 1 = vanilla, 3 = defaut actuel, 10 = maximum",
+        "- Blindage lourd : case desactivee par defaut, activable dans F10, degats joueur divises par 3 quand activee",
+        "- Super discrétion : case desactivee par defaut, bruit et detectabilite joueur divises par 3 quand activee",
         "- Bouton Par defaut : restaure les reglages du profil actuel",
         f"- Mega torpilles : {'oui' if args.mega_torpedoes else 'non'}",
         f"- Mega torpilles degats : x{args.torpedo_damage_factor:g}",
@@ -5004,10 +5538,10 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- DudChance torpilles : {args.torpedo_dud_chance:g}",
         f"- Defaillance magnetique torpilles : {args.torpedo_magnetic_failure_chance:g}",
         f"- Explosion magnetique prematuree torpilles : {args.torpedo_premature_magnetic_chance:g}",
-        "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles et Mega Sonar",
+        "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd et Super discrétion",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
-        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, carburant rapide, torpilles, menu et stabilite surface/alarme",
+        f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, menu et stabilite surface/alarme",
         "",
         "Installation :",
         "1. Fermer UBOAT.",
@@ -5021,7 +5555,11 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.",
         "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.",
-        "- Mega Batterie est reglable en runtime ; 1 revient vanilla, 4 donne x4, 99 donne x99, 100 coupe le drain electrique positif.",
+        "- Mega Batterie cochee rend la batterie infinie ; decochee, la batterie revient vanilla.",
+        "- Blindage lourd est desactive par defaut ; coche dans F10, il divise les degats joueur par 3 sans rendre le sous-marin immortel.",
+        "- Migration v16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois, puis tes choix F10 sont conserves.",
+        "- Super discrétion cochee divise le bruit et les detectabilites joueur par 3 sans supprimer les contacts ennemis.",
+        "- La profondeur d'ecrasement reste vanilla : depasser la limite critique peut toujours etre fatal.",
         "- Les sliders F10 sont persistants et s'appliquent en partie avec un debounce ou Reappliquer maintenant.",
         "- Les vitesses lentes et mi-vitesse restent vanilla ; seuls les deux crans rapides avant sont boostés vers 40/45 km/h.",
         "- Les crans rapides consomment plus de carburant pour garder une autonomie logique.",
@@ -5044,12 +5582,14 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 f"- Lignes batterie : {report.counters.get('battery_capacity_rows', 0)}",
                 f"- Lignes EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}",
                 f"- Lignes EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}",
-                "- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum",
-                "- Menu F10 : sliders runtime bornes par profil et bouton Par defaut",
+                "- Mega Batterie : case F10 active = batterie infinie, pompe incluse",
+                "- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3 et bouton Par defaut",
                 "- SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant",
                 f"- Lignes vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}",
                 "- Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee",
                 "- Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone",
+                "- Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3",
+                "- Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3",
             ]
         )
 
@@ -5510,12 +6050,14 @@ def main(argv: list[str]) -> int:
     print(f"  - Discipline/fatigue : /{args.discipline_factor:g}")
     print(f"  - Batterie Accumulators : x{args.battery_capacity_factor:g}")
     print(f"  - EnergyUsage consommateurs hors ventilation/compresseurs : x{args.energy_usage_factor:g} dans les datasheets")
-    print("  - Mega Batterie runtime : slider 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum")
+    print("  - Mega Batterie runtime : case F10 active = batterie infinie, pompe incluse")
     print("  - EnergyUsage recharge/production batterie : vanilla")
     print(f"  - Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}")
     print(f"  - Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}")
     print(f"  - Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h")
-    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10")
+    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3")
+    print("  - Blindage lourd : desactive par defaut, activable dans F10, degats joueur divises par 3")
+    print("  - Super discrétion : desactivee par defaut, bruit et detectabilite joueur divisibles par 3")
     print(f"  - Mega torpilles : {'OUI' if args.mega_torpedoes else 'NON'}")
     print(f"  - Torpilles degats : x{args.torpedo_damage_factor:g}")
     print(f"  - Torpilles effets visuels rayon explosion : x{args.torpedo_explosion_radius_factor:g}")
@@ -5529,11 +6071,13 @@ def main(argv: list[str]) -> int:
     print(f"  - Batterie : {report.counters.get('battery_capacity_rows', 0)}")
     print(f"  - EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}")
     print(f"  - EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}")
-    print("  - Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum")
+    print("  - Mega Batterie : case F10 active = batterie infinie, pompe incluse")
     print(f"  - Vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}")
     print("  - SuperVitesse : runtime F10 reglable 1-20")
     print("  - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10 et effets visuels bornes x3")
     print("  - Mega Sonar : runtime F10 reglable 1-10, defaut x3")
+    print("  - Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3")
+    print("  - Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3")
     print("  - Fiabilite torpilles : runtime F10")
 
     print("\nFichiers générés :")

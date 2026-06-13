@@ -11,13 +11,16 @@ Fichiers générés :
 - C:\Program Files (x86)\Steam\steamapps\common\UBOAT\DonJmod [dev]\mod-here\LongSubmerged10x\Data Sheets\Entities.xlsx
 
 Changements :
-- Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, chargement de sauvegarde et changement d'equipage, plus vitesse rapide, plafond runtime, propulseurs, carburant rapide, menu F10 et toggles mega.
-- Mega Batterie : runtime F10 reglable 1-100, 100 coupe le drain electrique positif et maintient la ressource au maximum.
+- Patch runtime Harmony ajoute : recalcul de OxygenBreathModifier apres Awake, chargement de sauvegarde et changement d'equipage, plus vitesse rapide, plafond runtime, propulseurs, carburant rapide, menu F10, toggles mega, blindage lourd et super discretion.
+- Mega Batterie : la case F10 rend la batterie infinie et maintient la ressource au maximum.
 - Mega Oxygene : profil par defaut calibre pour environ 90 jours.
 - Menu F10 : sliders runtime bornes par profil et bouton Par defaut.
 - SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant.
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.
 - Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone.
+- Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3 sans toucher a la profondeur d'ecrasement.
+- Blindage lourd : migration v16 force la case sur OFF une seule fois pour les installations existantes.
+- Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.
 - General.xlsx / Settings / Underwater Discipline Loss: Normal: 1e-05 -> 6.666666666666667e-07; Hard: 1e-05 -> 6.666666666666667e-07; Very Hard: 1e-05 -> 6.666666666666667e-07 | Discipline sous l'eau environ 15x moins punitive.
 - General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
 - General.xlsx / Settings / Fatigue - Max Penalty: Normal: -0.00012 -> -8e-06; Hard: -0.000155 -> -1.0333333333333333e-05; Very Hard: -0.0002 -> -1.3333333333333333e-05 | Pénalité maximale de fatigue réduite proportionnellement.
