@@ -1,6 +1,10 @@
 __pycache__/
 *.py[cod]
 
+# Local agent instructions. Keep this out of GitHub.
+AGENTS.md
+agents.md
+
 # Sortie de génération locale. Le package public prêt à installer reste dans mod-here/.
 /LongSubmerged10x/
 
