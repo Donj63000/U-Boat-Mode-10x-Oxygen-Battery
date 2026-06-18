@@ -10,6 +10,22 @@ from openpyxl import Workbook, load_workbook
 import build_uboat_long_submerged_mod as generator
 
 
+def extract_csharp_block(text: str, declaration: str) -> str:
+    start = text.index(declaration)
+    brace_start = text.index("{", start)
+    depth = 0
+    for index in range(brace_start, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    raise AssertionError(f"C# block not closed: {declaration}")
+
+
 def make_general_workbook(path: Path, oxygen_value: float) -> None:
     wb = Workbook()
     ws = wb.active
@@ -181,8 +197,8 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
 
             manifest = json.loads((out_mod / "Manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["version"], "1.4.15")
-            self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch_1_4_15")
+            self.assertEqual(manifest["version"], "1.4.16")
+            self.assertEqual(manifest["assemblyName"], "LongSubmerged10xPatch_1_4_16")
             self.assertIn("Blindage lourd F10 desactive par defaut", manifest["description"])
             self.assertIn("Super discrétion F10 desactivee par defaut", manifest["description"])
             self.assertIn("Reflection", manifest["permissions"])
@@ -221,9 +237,9 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("KeyCode.F10", runtime_patch_text)
             self.assertNotIn("KeyCode.F11", runtime_patch_text)
             self.assertIn("MenuKey = KeyCode.F10", runtime_patch_text)
-            self.assertIn('private const string RuntimeVersion = "1.4.15";', runtime_patch_text)
+            self.assertIn('private const string RuntimeVersion = "1.4.16";', runtime_patch_text)
             self.assertIn("Runtime patch loaded v", runtime_patch_text)
-            self.assertIn('new Harmony("donj.longsubmerged10x.runtimefix1415")', runtime_patch_text)
+            self.assertIn('new Harmony("donj.longsubmerged10x.runtimefix1416")', runtime_patch_text)
             self.assertIn("LongSubmergedRuntimePatcher.PatchSafely", runtime_patch_text)
             self.assertIn("Harmony patch active", runtime_patch_text)
             self.assertIn("Harmony patch skipped", runtime_patch_text)
@@ -251,6 +267,8 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertNotIn("HarmonyPatch(typeof(SwitchLightAction)", runtime_patch_text)
             self.assertIn("Runtime Unity UI menu controller ready on F10", runtime_patch_text)
             self.assertIn("using UnityEngine.UI;", runtime_patch_text)
+            self.assertIn("using UBOAT.Game.Core.AI;", runtime_patch_text)
+            self.assertIn("using UBOAT.Game.Core.AI.GroupBehaviours;", runtime_patch_text)
             self.assertIn("using UBOAT.Game.Scene.Characters;", runtime_patch_text)
             self.assertIn("using UBOAT.Game.Scene.Utilities;", runtime_patch_text)
             self.assertIn("using UBOAT.Game.Sandbox;", runtime_patch_text)
@@ -281,18 +299,50 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("if (reinforcementCallInProgress)", runtime_patch_text)
             self.assertIn("nextAllowedReinforcementCallTime = Time.unscaledTime + ReinforcementCooldownSeconds;", runtime_patch_text)
             self.assertIn("ActiveReinforcementGroups", runtime_patch_text)
+            self.assertIn("private const float ReinforcementActiveTrackingSeconds = 900f;", runtime_patch_text)
+            self.assertIn("ActiveReinforcementGroupTrackedAt", runtime_patch_text)
+            self.assertIn("Time.unscaledTime - trackedAt >= ReinforcementActiveTrackingSeconds", runtime_patch_text)
+            self.assertIn("Reinforcement group tracking expired", runtime_patch_text)
             self.assertIn("DestroyCreatedGroups(primaryGroups, \"primary incomplete\")", runtime_patch_text)
             self.assertIn("Reinforcement call requested", runtime_patch_text)
             self.assertIn("Reinforcement call skipped: cooldown active", runtime_patch_text)
             self.assertIn("Reinforcement call skipped: already running", runtime_patch_text)
             self.assertIn("Reinforcement call spawned primary groups", runtime_patch_text)
-            self.assertIn("Reinforcement call spawned fallback U-boats", runtime_patch_text)
+            self.assertIn("Reinforcement call spawned manual fallback U-boats", runtime_patch_text)
             self.assertIn("Reinforcement call failed", runtime_patch_text)
             self.assertIn("MissionUtility.SpawnPatrol", runtime_patch_text)
             self.assertIn("Country.Relation.Ally", runtime_patch_text)
             self.assertIn('"Air Patrol"', runtime_patch_text)
             self.assertIn('"Warships"', runtime_patch_text)
             self.assertIn('"Submarine"', runtime_patch_text)
+            self.assertIn("private const int DesiredFallbackUboatCount = 2;", runtime_patch_text)
+            self.assertIn('"Type VIIC"', runtime_patch_text)
+            self.assertIn('"Type VIIB"', runtime_patch_text)
+            self.assertIn('"Type VIIC41"', runtime_patch_text)
+            self.assertIn('"Type IID"', runtime_patch_text)
+            self.assertIn('"Type IIB"', runtime_patch_text)
+            self.assertIn('"Type IIA"', runtime_patch_text)
+            self.assertIn("CreateManualFriendlyUboats", runtime_patch_text)
+            self.assertIn("SandboxGroup.Create<SandboxMobileGroup>", runtime_patch_text)
+            self.assertIn("SandboxEntity.Create(submarineTypeName, country)", runtime_patch_text)
+            self.assertIn("group.AddEntity(entity);", runtime_patch_text)
+            self.assertIn("bool entityAttachedToGroup = false;", runtime_patch_text)
+            self.assertIn("entityAttachedToGroup = true;", runtime_patch_text)
+            self.assertIn("if (!entityAttachedToGroup && entity != null)", runtime_patch_text)
+            self.assertIn("sandbox.AddGroup(group);", runtime_patch_text)
+            self.assertIn("group.gameObject.AddComponent<CharacterAI>()", runtime_patch_text)
+            self.assertIn("new SailToBehaviour(ai, 1.5f, rallyPoint)", runtime_patch_text)
+            self.assertIn("AIBehaviourFlags.OneShot", runtime_patch_text)
+            self.assertIn("GetGroupsInRange(position, FallbackGroupClearance, false)", runtime_patch_text)
+            self.assertIn('AccessTools.Field(typeof(SandboxGroup), "worldNavMesh")', runtime_patch_text)
+            self.assertIn("ResolveWorldNavMesh", runtime_patch_text)
+            self.assertIn("worldNavMesh.SnapWorld(position)", runtime_patch_text)
+            self.assertIn("worldNavMesh.IsOnNavMesh(position)", runtime_patch_text)
+            self.assertIn("worldNavMesh.RaycastLandsNavMesh(position, playerGroup.Position, out hit)", runtime_patch_text)
+            self.assertIn("Manual U-boat fallback navmesh check skipped", runtime_patch_text)
+            self.assertIn('"1 U-boat appele"', runtime_patch_text)
+            self.assertIn('" U-boats appeles"', runtime_patch_text)
+            self.assertIn('"Aucun U-boat ami disponible"', runtime_patch_text)
             self.assertNotIn('"Air Raid"', runtime_patch_text)
             self.assertNotIn("AirRaid", runtime_patch_text)
             self.assertNotIn("EngageBehaviour", runtime_patch_text)
@@ -304,6 +354,18 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertNotIn("private void OnGUI", runtime_patch_text)
             self.assertNotIn("GUI.Window", runtime_patch_text)
             self.assertNotIn("GUILayout", runtime_patch_text)
+            reinforcement_controller_text = extract_csharp_block(runtime_patch_text, "internal static class ReinforcementRuntimeController")
+            manual_fallback_text = reinforcement_controller_text[
+                reinforcement_controller_text.index("private static int CreateManualFriendlyUboats") :
+                reinforcement_controller_text.index("private static SandboxGroup ResolvePlayerGroup")
+            ]
+            call_reinforcements_text = extract_csharp_block(reinforcement_controller_text, "public static string CallReinforcements")
+            self.assertNotIn("MissionUtility.SpawnPatrol", manual_fallback_text)
+            self.assertNotIn("GroupSpawner.SpawnInstantly", manual_fallback_text)
+            self.assertNotIn("UnityEngine.Random", manual_fallback_text)
+            self.assertNotIn('"(Player)"', manual_fallback_text)
+            self.assertIn("StartReinforcementCooldown();", call_reinforcements_text)
+            self.assertNotIn("nextAllowedReinforcementCallTime = Time.unscaledTime + ReinforcementCooldownSeconds;", call_reinforcements_text)
             self.assertIn("PlayerPrefs", runtime_patch_text)
             self.assertIn("MegaBattery", runtime_patch_text)
             self.assertIn("MegaOxygen", runtime_patch_text)
@@ -576,9 +638,12 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("SuperVitesse : runtime F10 reglable 1-20", report_text)
             self.assertIn("Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3", report_text)
             self.assertIn("Mega Sonar : runtime F10 reglable 1-10, defaut x3", report_text)
+            self.assertIn("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel.", report_text)
             self.assertIn("Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3", report_text)
             self.assertIn("migration v16 force la case sur OFF une seule fois", report_text)
             self.assertIn("Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3", report_text)
+            self.assertIn("Bouton Appeler renforts : appelle des U-boats amis pres du joueur; avions/warships seulement si des spawners amis compatibles existent", generated_readme_text)
+            self.assertNotIn("tente 2 patrouilles avions + 2 patrouilles warships", generated_readme_text)
             self.assertIn("Blindage lourd : case desactivee par defaut, activable dans F10, degats joueur divises par 3 quand activee", generated_readme_text)
             self.assertIn("Migration v16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois", generated_readme_text)
             self.assertIn("Super discrétion : case desactivee par defaut, bruit et detectabilite joueur divises par 3 quand activee", generated_readme_text)

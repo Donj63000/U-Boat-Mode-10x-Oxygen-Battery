@@ -1,6 +1,6 @@
 {
   "name": "Long Submerged 10x+",
-  "version": "1.4.15",
+  "version": "1.4.16",
   "description": "Immersion longue : oxygene runtime calibre 1=vanilla et 100=environ 90 jours, recharge surface vanilla, aucune capacite d'air XLSX modifiee, discipline x1/15, Mega Batterie rend la batterie infinie des que la case F10 est cochee, consommation electrique runtime restauree proprement, SuperVitesse reglable 1=x1 a 20=x20 sur les crans rapides, torpilles reglables 1=x1 a 10=x10, sonar hydrophone reglable 1=x1 a 10=x10, defaut x3, Blindage lourd F10 desactive par defaut avec degats joueur divisibles par 3 quand active, Super discrétion F10 desactivee par defaut avec bruit et detectabilite joueur divisibles par 3, menu runtime F10 debounce pour eviter les freezes de slider, bouton Appeler renforts avec fallback U-boats amis, AirCompressor et Ventilation vanilla.",
   "author": "VotreNomOuVotreEquipe",
   "minGameVersion": "2026.1",
@@ -9,7 +9,7 @@
     "2026.1 Patch 20",
     "2026.1"
   ],
-  "assemblyName": "LongSubmerged10xPatch_1_4_15",
+  "assemblyName": "LongSubmerged10xPatch_1_4_16",
   "permissions": [
     "Reflection"
   ],

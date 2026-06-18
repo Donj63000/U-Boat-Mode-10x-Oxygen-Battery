@@ -6,6 +6,8 @@ using System.Text;
 using HarmonyLib;
 using UBOAT.Game;
 using UBOAT.Game.Core;
+using UBOAT.Game.Core.AI;
+using UBOAT.Game.Core.AI.GroupBehaviours;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Characters;
 using UBOAT.Game.Scene.Entities;
@@ -25,7 +27,7 @@ namespace LongSubmerged10x
     // elle charge les reglages, cree le menu F10, installe les hooks Harmony et lance une premiere passe runtime.
     public sealed class LongSubmergedRuntimePatchMod : IUserMod
     {
-        private const string RuntimeVersion = "1.4.15";
+        private const string RuntimeVersion = "1.4.16";
 
         public string Name
         {
@@ -48,7 +50,7 @@ namespace LongSubmerged10x
 
             // DonJ : je patche chaque hook un par un. Un patch rate ne doit jamais empecher la batterie,
             // l'oxygene, les torpilles ou le menu de continuer a fonctionner avec les autres hooks valides.
-            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix1415"));
+            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix1416"));
 
             try
             {
@@ -298,14 +300,34 @@ namespace LongSubmerged10x
     internal static class ReinforcementRuntimeController
     {
         private const float ReinforcementCooldownSeconds = 300f;
+        private const float ReinforcementActiveTrackingSeconds = 900f;
         private const int RequiredPrimaryAirPatrolCalls = 2;
         private const int RequiredPrimaryWarshipCalls = 2;
-        private const int RequiredFallbackSubmarineCalls = 2;
+        private const int DesiredFallbackUboatCount = 2;
+        private const float FallbackMinimumPlayerDistance = 15f;
+        private const float FallbackGroupClearance = 2.5f;
+        private const float FallbackRallyDistance = 4f;
+        private static readonly string[] FallbackSubmarineTypePriority = new string[]
+        {
+            "Type VIIC",
+            "Type VIIB",
+            "Type VIIC41",
+            "Type IID",
+            "Type IIB",
+            "Type IIA"
+        };
+
+        private static readonly float[] FallbackSpawnDistances = new float[] { 18f, 22f, 26f, 16f };
+        private static readonly float[] FallbackSpawnAngles = new float[] { 125f, -125f, 145f, -145f, 160f, -160f, 95f, -95f };
 
         private static readonly List<SandboxGroup> ActiveReinforcementGroups = new List<SandboxGroup>();
+        private static readonly List<float> ActiveReinforcementGroupTrackedAt = new List<float>();
+        private static readonly FieldInfo SandboxGroupWorldNavMeshField = AccessTools.Field(typeof(SandboxGroup), "worldNavMesh");
 
         private static bool reinforcementCallInProgress;
         private static float nextAllowedReinforcementCallTime;
+        private static bool warnedMissingWorldNavMeshField;
+        private static bool warnedWorldNavMeshValidationFailure;
 
         public static string GetStatusText()
         {
@@ -366,8 +388,6 @@ namespace LongSubmerged10x
                 if (friendlyCountries.Count == 0)
                     return FailWithoutCooldown("Aucun pays ami", "no friendly country found");
 
-                nextAllowedReinforcementCallTime = Time.unscaledTime + ReinforcementCooldownSeconds;
-
                 List<SandboxGroup> primaryGroups = new List<SandboxGroup>();
                 int airGroups = SpawnFriendlyPatrols(
                     "LongSubmerged Air Reinforcement",
@@ -395,6 +415,7 @@ namespace LongSubmerged10x
                 if (airGroups >= RequiredPrimaryAirPatrolCalls && warshipGroups >= RequiredPrimaryWarshipCalls)
                 {
                     TrackCreatedGroups(primaryGroups);
+                    StartReinforcementCooldown();
                     Debug.Log("[LongSubmerged10x] Reinforcement call spawned primary groups: air=" + airGroups + ", warships=" + warshipGroups + ".");
                     return "Renforts appeles";
                 }
@@ -403,28 +424,25 @@ namespace LongSubmerged10x
                 Debug.LogWarning("[LongSubmerged10x] Reinforcement call primary fallback: air=" + airGroups + ", warships=" + warshipGroups + ".");
 
                 List<SandboxGroup> fallbackGroups = new List<SandboxGroup>();
-                int submarineGroups = SpawnFriendlyPatrols(
-                    "LongSubmerged U-boat Reinforcement",
-                    "Entities/Submarine",
-                    "Submarine",
-                    false,
-                    RequiredFallbackSubmarineCalls,
+                int submarineGroups = CreateManualFriendlyUboats(
+                    sandbox,
                     friendlyCountries,
                     playerCountry,
                     playerGroup,
                     fallbackGroups
                 );
 
-                if (submarineGroups >= RequiredFallbackSubmarineCalls)
+                if (submarineGroups > 0)
                 {
                     TrackCreatedGroups(fallbackGroups);
-                    Debug.Log("[LongSubmerged10x] Reinforcement call spawned fallback U-boats: submarines=" + submarineGroups + ".");
-                    return "Fallback U-boats";
+                    StartReinforcementCooldown();
+                    Debug.Log("[LongSubmerged10x] Reinforcement call spawned manual fallback U-boats: submarines=" + submarineGroups + ".");
+                    return submarineGroups == 1 ? "1 U-boat appele" : submarineGroups + " U-boats appeles";
                 }
 
-                DestroyCreatedGroups(fallbackGroups, "fallback incomplete");
-                Debug.LogWarning("[LongSubmerged10x] Reinforcement call failed: no complete friendly fallback was available.");
-                return "Aucun renfort ami disponible";
+                DestroyCreatedGroups(fallbackGroups, "fallback failed");
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement call failed: no friendly U-boat fallback was available.");
+                return "Aucun U-boat ami disponible";
             }
             catch (Exception ex)
             {
@@ -526,6 +544,434 @@ namespace LongSubmerged10x
 
             Debug.LogWarning("[LongSubmerged10x] Reinforcement patrol unavailable for friendly countries: " + patrolType + ".");
             return null;
+        }
+
+        private static int CreateManualFriendlyUboats(
+            Sandbox sandbox,
+            List<Country> friendlyCountries,
+            Country playerCountry,
+            SandboxGroup playerGroup,
+            List<SandboxGroup> createdGroups
+        )
+        {
+            if (sandbox == null)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback skipped: sandbox missing.");
+                return 0;
+            }
+
+            List<Country> fallbackCountries = BuildFallbackSubmarineCountries(sandbox, friendlyCountries, playerCountry);
+            if (fallbackCountries.Count == 0)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback skipped: no friendly submarine country.");
+                return 0;
+            }
+
+            int createdCount = 0;
+            for (int reinforcementIndex = 0; reinforcementIndex < DesiredFallbackUboatCount; reinforcementIndex++)
+            {
+                SandboxMobileGroup group = CreateOneManualFriendlyUboat(sandbox, fallbackCountries, playerCountry, playerGroup, reinforcementIndex);
+                if (group == null)
+                    continue;
+
+                createdGroups.Add(group);
+                createdCount++;
+            }
+
+            return createdCount;
+        }
+
+        private static SandboxMobileGroup CreateOneManualFriendlyUboat(
+            Sandbox sandbox,
+            List<Country> fallbackCountries,
+            Country playerCountry,
+            SandboxGroup playerGroup,
+            int reinforcementIndex
+        )
+        {
+            Vector2 spawnPosition;
+            if (!TryGetFallbackSpawnPosition(sandbox, playerGroup, reinforcementIndex, out spawnPosition))
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback skipped: no clear horizon position.");
+                return null;
+            }
+
+            Vector2 rallyPoint = GetFallbackRallyPoint(playerGroup, reinforcementIndex);
+            for (int countryIndex = 0; countryIndex < fallbackCountries.Count; countryIndex++)
+            {
+                Country country = fallbackCountries[countryIndex];
+                if (!IsFriendlyCountry(country, playerCountry))
+                    continue;
+
+                for (int typeIndex = 0; typeIndex < FallbackSubmarineTypePriority.Length; typeIndex++)
+                {
+                    SandboxMobileGroup group = TryCreateManualUboat(
+                        sandbox,
+                        country,
+                        playerCountry,
+                        playerGroup,
+                        reinforcementIndex,
+                        FallbackSubmarineTypePriority[typeIndex],
+                        spawnPosition,
+                        rallyPoint
+                    );
+
+                    if (group != null)
+                        return group;
+                }
+            }
+
+            Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback failed: no friendly submarine blueprint worked.");
+            return null;
+        }
+
+        private static SandboxMobileGroup TryCreateManualUboat(
+            Sandbox sandbox,
+            Country country,
+            Country playerCountry,
+            SandboxGroup playerGroup,
+            int reinforcementIndex,
+            string submarineTypeName,
+            Vector2 spawnPosition,
+            Vector2 rallyPoint
+        )
+        {
+            SandboxMobileGroup group = null;
+            SandboxEntity entity = null;
+            bool entityAttachedToGroup = false;
+            try
+            {
+                group = SandboxGroup.Create<SandboxMobileGroup>(
+                    "LongSubmerged U-boat Reinforcement " + (reinforcementIndex + 1),
+                    "Submarine",
+                    spawnPosition,
+                    country
+                );
+
+                if (group == null)
+                    return null;
+
+                CharacterAI ai = EnsureCharacterAi(group);
+                entity = SandboxEntity.Create(submarineTypeName, country);
+                if (entity == null)
+                {
+                    DestroyCreatedGroup(group, "manual U-boat entity missing");
+                    return null;
+                }
+
+                entity.Position = spawnPosition;
+                entity.FormationPosition = Vector2.zero;
+                entity.RandomizeSpawnPosition = false;
+                entity.SpawnsInstantly = true;
+
+                group.Position = spawnPosition;
+                group.Up = GetDirectionTowards(spawnPosition, rallyPoint, ResolvePlayerForward(playerGroup));
+                group.AddEntity(entity);
+                entityAttachedToGroup = true;
+                group.Velocity = Mathf.Max(0f, group.MaxVelocity * 0.55f);
+                AddFallbackSailToBehaviour(ai, rallyPoint);
+
+                sandbox.AddGroup(group);
+                RefreshCreatedGroup(group);
+                AddFallbackObservations(playerGroup, group);
+
+                if (!IsFriendlyGroup(group, playerCountry))
+                {
+                    Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback rejected non-friendly group: " + SafeCountryCode(group.Country) + ".");
+                    DestroyCreatedGroup(group, "manual non-friendly group");
+                    return null;
+                }
+
+                Debug.Log("[LongSubmerged10x] Manual U-boat fallback spawned: type=" + submarineTypeName + ", country=" + SafeCountryCode(country) + ", position=" + group.Position + ".");
+                return group;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback failed for " + submarineTypeName + "/" + SafeCountryCode(country) + ": " + ex.GetType().Name + ": " + ex.Message);
+                if (group != null)
+                    DestroyCreatedGroup(group, "manual U-boat exception");
+                if (!entityAttachedToGroup && entity != null)
+                    DestroyCreatedEntity(entity, "manual U-boat orphan");
+
+                return null;
+            }
+        }
+
+        private static List<Country> BuildFallbackSubmarineCountries(Sandbox sandbox, List<Country> friendlyCountries, Country playerCountry)
+        {
+            List<Country> countries = new List<Country>();
+            AddFriendlyCountry(countries, FindCountryByCode(sandbox, "DE"), playerCountry);
+            AddFriendlyCountry(countries, playerCountry, playerCountry);
+
+            if (friendlyCountries != null)
+            {
+                for (int index = 0; index < friendlyCountries.Count; index++)
+                    AddFriendlyCountry(countries, friendlyCountries[index], playerCountry);
+            }
+
+            return countries;
+        }
+
+        private static Country FindCountryByCode(Sandbox sandbox, string countryCode)
+        {
+            if (sandbox == null || sandbox.Countries == null || string.IsNullOrEmpty(countryCode))
+                return null;
+
+            Country[] countries = sandbox.Countries;
+            for (int index = 0; index < countries.Length; index++)
+            {
+                Country country = countries[index];
+                if (country != null && string.Equals(country.CountryCode, countryCode, StringComparison.OrdinalIgnoreCase))
+                    return country;
+            }
+
+            return null;
+        }
+
+        private static bool TryGetFallbackSpawnPosition(Sandbox sandbox, SandboxGroup playerGroup, int reinforcementIndex, out Vector2 position)
+        {
+            position = Vector2.zero;
+            if (playerGroup == null)
+                return false;
+
+            Vector2 origin = playerGroup.Position;
+            Vector2 forward = ResolvePlayerForward(playerGroup);
+            WorldNavMesh worldNavMesh = ResolveWorldNavMesh();
+            int angleOffset = (reinforcementIndex * 2) % FallbackSpawnAngles.Length;
+            for (int distanceIndex = 0; distanceIndex < FallbackSpawnDistances.Length; distanceIndex++)
+            {
+                for (int angleIndex = 0; angleIndex < FallbackSpawnAngles.Length; angleIndex++)
+                {
+                    float angle = FallbackSpawnAngles[(angleIndex + angleOffset) % FallbackSpawnAngles.Length];
+                    float distance = FallbackSpawnDistances[distanceIndex];
+                    Vector2 candidate = origin + Rotate(forward, angle) * distance;
+                    candidate = SnapFallbackSpawnPosition(worldNavMesh, candidate);
+                    if (!IsFallbackSpawnPositionClear(sandbox, playerGroup, worldNavMesh, candidate))
+                        continue;
+
+                    position = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static WorldNavMesh ResolveWorldNavMesh()
+        {
+            try
+            {
+                if (SandboxGroupWorldNavMeshField == null)
+                {
+                    if (!warnedMissingWorldNavMeshField)
+                    {
+                        warnedMissingWorldNavMeshField = true;
+                        Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback navmesh check skipped: SandboxGroup.worldNavMesh field missing.");
+                    }
+
+                    return null;
+                }
+
+                return SandboxGroupWorldNavMeshField.GetValue(null) as WorldNavMesh;
+            }
+            catch (Exception ex)
+            {
+                WarnWorldNavMeshValidationSkipped(ex);
+                return null;
+            }
+        }
+
+        private static Vector2 SnapFallbackSpawnPosition(WorldNavMesh worldNavMesh, Vector2 position)
+        {
+            if (worldNavMesh == null)
+                return position;
+
+            try
+            {
+                return worldNavMesh.SnapWorld(position);
+            }
+            catch (Exception ex)
+            {
+                WarnWorldNavMeshValidationSkipped(ex);
+                return position;
+            }
+        }
+
+        private static bool IsFallbackSpawnPositionClear(Sandbox sandbox, SandboxGroup playerGroup, WorldNavMesh worldNavMesh, Vector2 position)
+        {
+            if (playerGroup != null)
+            {
+                Vector2 fromPlayer = position - playerGroup.Position;
+                if (fromPlayer.sqrMagnitude < FallbackMinimumPlayerDistance * FallbackMinimumPlayerDistance)
+                    return false;
+            }
+
+            if (!IsFallbackSpawnPositionOnNavMesh(worldNavMesh, playerGroup, position))
+                return false;
+
+            if (sandbox == null)
+                return true;
+
+            try
+            {
+                List<SandboxGroup> nearbyGroups = sandbox.GetGroupsInRange(position, FallbackGroupClearance, false);
+                if (nearbyGroups == null)
+                    return true;
+
+                for (int index = 0; index < nearbyGroups.Count; index++)
+                {
+                    SandboxGroup group = nearbyGroups[index];
+                    if (group != null && group != playerGroup && !ActiveReinforcementGroups.Contains(group))
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback group clearance check skipped: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            return true;
+        }
+
+        private static bool IsFallbackSpawnPositionOnNavMesh(WorldNavMesh worldNavMesh, SandboxGroup playerGroup, Vector2 position)
+        {
+            if (worldNavMesh == null)
+                return true;
+
+            try
+            {
+                if (!worldNavMesh.IsOnNavMesh(position))
+                    return false;
+
+                if (playerGroup != null)
+                {
+                    Vector2 hit;
+                    if (worldNavMesh.RaycastLandsNavMesh(position, playerGroup.Position, out hit))
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                WarnWorldNavMeshValidationSkipped(ex);
+                return true;
+            }
+
+            return true;
+        }
+
+        private static void WarnWorldNavMeshValidationSkipped(Exception ex)
+        {
+            if (warnedWorldNavMeshValidationFailure)
+                return;
+
+            warnedWorldNavMeshValidationFailure = true;
+            Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback navmesh check skipped: " + ex.GetType().Name + ": " + ex.Message);
+        }
+
+        private static Vector2 GetFallbackRallyPoint(SandboxGroup playerGroup, int reinforcementIndex)
+        {
+            if (playerGroup == null)
+                return Vector2.zero;
+
+            Vector2 forward = ResolvePlayerForward(playerGroup);
+            float rallyAngle = reinforcementIndex % 2 == 0 ? 70f : -70f;
+            return playerGroup.Position + Rotate(forward, rallyAngle) * FallbackRallyDistance;
+        }
+
+        private static Vector2 ResolvePlayerForward(SandboxGroup playerGroup)
+        {
+            Vector2 forward = Vector2.up;
+            if (playerGroup != null && playerGroup.Up.sqrMagnitude > 0.0001f)
+                forward = playerGroup.Up.normalized;
+
+            return forward;
+        }
+
+        private static Vector2 GetDirectionTowards(Vector2 from, Vector2 to, Vector2 fallback)
+        {
+            Vector2 direction = to - from;
+            if (direction.sqrMagnitude <= 0.0001f)
+                direction = fallback;
+
+            if (direction.sqrMagnitude <= 0.0001f)
+                direction = Vector2.up;
+
+            return direction.normalized;
+        }
+
+        private static CharacterAI EnsureCharacterAi(SandboxMobileGroup group)
+        {
+            if (group == null)
+                return null;
+
+            try
+            {
+                CharacterAI ai = group.GetComponent<CharacterAI>();
+                if (ai != null)
+                    return ai;
+
+                return group.gameObject.AddComponent<CharacterAI>();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback AI creation skipped: " + ex.GetType().Name + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        private static void AddFallbackSailToBehaviour(CharacterAI ai, Vector2 rallyPoint)
+        {
+            if (ai == null)
+                return;
+
+            try
+            {
+                SailToBehaviour sailToBehaviour = new SailToBehaviour(ai, 1.5f, rallyPoint);
+                sailToBehaviour.Flags = AIBehaviourFlags.OneShot;
+                ai.AddBehaviour(sailToBehaviour);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback sail behaviour skipped: " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private static void RefreshCreatedGroup(SandboxMobileGroup group)
+        {
+            if (group == null)
+                return;
+
+            try
+            {
+                group.UpdateGroup();
+                group.UpdateGroupLowFrequency(false);
+
+                if (group.AI != null)
+                {
+                    for (int index = 0; index < 3; index++)
+                        group.AI.UpdateAI(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback refresh skipped: " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private static void AddFallbackObservations(SandboxGroup playerGroup, SandboxGroup reinforcementGroup)
+        {
+            if (playerGroup == null || reinforcementGroup == null)
+                return;
+
+            try
+            {
+                playerGroup.AddObservation(reinforcementGroup, GroupDetectionMethod.IndirectObservation);
+                reinforcementGroup.AddObservation(playerGroup, GroupDetectionMethod.IndirectObservation);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Manual U-boat fallback observations skipped: " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         private static SandboxGroup ResolvePlayerGroup(PlayerShip playerShip)
@@ -632,17 +1078,33 @@ namespace LongSubmerged10x
             {
                 SandboxGroup group = groups[index];
                 if (group != null && !ActiveReinforcementGroups.Contains(group))
+                {
                     ActiveReinforcementGroups.Add(group);
+                    ActiveReinforcementGroupTrackedAt.Add(Time.unscaledTime);
+                }
             }
         }
 
         private static void CleanupActiveGroups()
         {
+            while (ActiveReinforcementGroupTrackedAt.Count < ActiveReinforcementGroups.Count)
+                ActiveReinforcementGroupTrackedAt.Add(Time.unscaledTime);
+
+            while (ActiveReinforcementGroupTrackedAt.Count > ActiveReinforcementGroups.Count)
+                ActiveReinforcementGroupTrackedAt.RemoveAt(ActiveReinforcementGroupTrackedAt.Count - 1);
+
             for (int index = ActiveReinforcementGroups.Count - 1; index >= 0; index--)
             {
                 SandboxGroup group = ActiveReinforcementGroups[index];
-                if (group == null)
+                float trackedAt = ActiveReinforcementGroupTrackedAt[index];
+                bool trackingExpired = Time.unscaledTime - trackedAt >= ReinforcementActiveTrackingSeconds;
+                if (group == null || trackingExpired)
+                {
                     ActiveReinforcementGroups.RemoveAt(index);
+                    ActiveReinforcementGroupTrackedAt.RemoveAt(index);
+                    if (trackingExpired && group != null)
+                        Debug.Log("[LongSubmerged10x] Reinforcement group tracking expired; cooldown now controls new calls.");
+                }
             }
         }
 
@@ -670,9 +1132,30 @@ namespace LongSubmerged10x
             }
         }
 
+        private static void DestroyCreatedEntity(SandboxEntity entity, string reason)
+        {
+            if (entity == null)
+                return;
+
+            try
+            {
+                entity.Destroy(false);
+                Debug.Log("[LongSubmerged10x] Reinforcement entity removed after " + reason + ".");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement entity cleanup failed after " + reason + ": " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
         private static float GetCooldownRemainingSeconds()
         {
             return Mathf.Max(0f, nextAllowedReinforcementCallTime - Time.unscaledTime);
+        }
+
+        private static void StartReinforcementCooldown()
+        {
+            nextAllowedReinforcementCallTime = Time.unscaledTime + ReinforcementCooldownSeconds;
         }
 
         private static string FailWithoutCooldown(string uiMessage, string logReason)

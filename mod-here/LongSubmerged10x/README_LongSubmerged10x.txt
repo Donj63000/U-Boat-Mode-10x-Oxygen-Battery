@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.4.15
+Long Submerged 10x+ v1.4.16
 
 Paramètres utilisés :
 - Oxygene long : applique au runtime sur le drain negatif de respiration
@@ -30,11 +30,11 @@ Paramètres utilisés :
 - Defaillance magnetique torpilles : 0
 - Explosion magnetique prematuree torpilles : 0
 - Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion et Appeler renforts
-- Bouton Appeler renforts : tente 2 patrouilles avions + 2 patrouilles warships amies, fallback 2 U-boats amis si indisponible
+- Bouton Appeler renforts : appelle des U-boats amis pres du joueur; avions/warships seulement si des spawners amis compatibles existent
 - Lumiere alarme : rouge vanilla remplace visuellement par orange ambre, gameplay Alarm inchange
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_4_15, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme
+- Patch runtime : LongSubmerged10xPatch_1_4_16, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme
 
 Installation :
 1. Fermer UBOAT.
