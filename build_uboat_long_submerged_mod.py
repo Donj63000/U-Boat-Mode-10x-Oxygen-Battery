@@ -1437,8 +1437,10 @@ using UBOAT.Game.Core.AI;
 using UBOAT.Game.Core.AI.GroupBehaviours;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Characters;
+using UBOAT.Game.Scene.Effects;
 using UBOAT.Game.Scene.Entities;
 using UBOAT.Game.Scene.Items;
+using UBOAT.Game.Scene.Tasks;
 using UBOAT.Game.Scene.Utilities;
 using UBOAT.Game.Sandbox;
 using UBOAT.Game.Sandbox.Missions;
@@ -1536,13 +1538,16 @@ namespace LongSubmerged10x
             typeof(HeavyArmorEquipmentAddWaterDamagePatch),
             typeof(HeavyArmorPlayableCharacterAddDamagePatch),
             typeof(HeavyArmorDamageUtilityDoApplyDamagePatch),
+            typeof(HeavyArmorDamageUtilityApplyDamageToComponentsPatch),
+            typeof(HeavyArmorApplyWaterDamageToPlayerShipDoDamageTickPatch),
+            typeof(HeavyArmorHullEffectsRendererApplyImpactPatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
             typeof(ResourceGuiUpdateDisplayedValuePatch),
-            typeof(OrangeAlarmPlayerShipInteriorLightingAwakePatch),
-            typeof(OrangeAlarmPlayerShipInteriorLightingStartPatch),
-            typeof(OrangeAlarmPlayerShipInteriorLightingApplyPresetsPatch),
-            typeof(OrangeAlarmLightControllerUpdatePresetsPatch),
-            typeof(OrangeAlarmFillLightUpdatePresetsPatch)
+            typeof(InteriorLightingPlayerShipInteriorLightingAwakePatch),
+            typeof(InteriorLightingPlayerShipInteriorLightingStartPatch),
+            typeof(InteriorLightingPlayerShipInteriorLightingApplyPresetsPatch),
+            typeof(InteriorLightingLightControllerUpdatePresetsPatch),
+            typeof(InteriorLightingFillLightUpdatePresetsPatch)
         };
 
         public static void PatchSafely(Harmony harmony)
@@ -1566,15 +1571,22 @@ namespace LongSubmerged10x
         }
     }
 
-    internal static class OrangeAlarmLightingPatcher
+    internal static class InteriorLightingColorPatcher
     {
         private static readonly Color AlarmOrangeColor = new Color(1f, 0.55f, 0.12f, 1f);
+        private static readonly Color SilentRunGreenColor = new Color(0.12f, 0.78f, 0.28f, 1f);
 
         private static readonly FieldInfo AlarmInteriorFogColorField =
             AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "alarmInteriorFogColor");
 
+        private static readonly FieldInfo SilentRunInteriorFogColorField =
+            AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "silentRunInteriorFogColor");
+
         private static readonly FieldInfo AlarmLightsColorMultiplierField =
             AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "alarmLightsColorMultiplier");
+
+        private static readonly FieldInfo SilentRunLightsColorMultiplierField =
+            AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "silentRunLightsColorMultiplier");
 
         private static readonly MethodInfo ApplyColorMultiplierMethod =
             AccessTools.Method(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "ApplyColorMultiplier");
@@ -1629,6 +1641,9 @@ namespace LongSubmerged10x
             {
                 if (!ColorsEqual(controller.AlarmColor, AlarmOrangeColor))
                     controller.AlarmColor = AlarmOrangeColor;
+
+                if (!ColorsEqual(controller.BlueColor, SilentRunGreenColor))
+                    controller.BlueColor = SilentRunGreenColor;
             }
             catch (Exception ex)
             {
@@ -1648,6 +1663,9 @@ namespace LongSubmerged10x
             {
                 if (!ColorsEqual(fillLight.RedColor, AlarmOrangeColor))
                     fillLight.RedColor = AlarmOrangeColor;
+
+                if (!ColorsEqual(fillLight.BlueColor, SilentRunGreenColor))
+                    fillLight.BlueColor = SilentRunGreenColor;
             }
             catch (Exception ex)
             {
@@ -1660,7 +1678,9 @@ namespace LongSubmerged10x
         )
         {
             SetColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor", AlarmOrangeColor);
+            SetColorField(lighting, SilentRunInteriorFogColorField, "silentRunInteriorFogColor", SilentRunGreenColor);
             SetColorField(lighting, AlarmLightsColorMultiplierField, "alarmLightsColorMultiplier", Color.white);
+            SetColorField(lighting, SilentRunLightsColorMultiplierField, "silentRunLightsColorMultiplier", Color.white);
         }
 
         private static void ApplyLightControllers(
@@ -1720,7 +1740,7 @@ namespace LongSubmerged10x
             if (!MissingMemberWarnings.Add(memberName))
                 return;
 
-            Debug.LogWarning("[LongSubmerged10x] Orange alarm lighting skipped missing member: " + memberName + ".");
+            Debug.LogWarning("[LongSubmerged10x] Interior lighting color patch skipped missing member: " + memberName + ".");
         }
     }
 
@@ -3000,7 +3020,7 @@ namespace LongSubmerged10x
             megaSonarToggle = CreateToggle(panelObject.transform, "Mega Sonar", new Vector2(20f, -386f));
             sonarFactorSlider = CreateFactorSlider(panelObject.transform, "Hydrophone portee", LongSubmergedRuntimeSettings.SonarMaxFactor, new Vector2(20f, -422f), out sonarFactorValueText);
 
-            heavyArmorToggle = CreateToggle(panelObject.transform, "Blindage lourd", new Vector2(20f, -462f));
+            heavyArmorToggle = CreateToggle(panelObject.transform, "Blindage lourd x3", new Vector2(20f, -462f));
             superStealthToggle = CreateToggle(panelObject.transform, "Super discrétion", new Vector2(20f, -498f));
 
             callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -542f), new Vector2(180f, 38f));
@@ -5562,23 +5582,134 @@ namespace LongSubmerged10x
         }
     }
 
+    internal struct HeavyArmorDamageScaleState
+    {
+        public bool ScaledDamage;
+        public bool PreserveDistributionBudget;
+        public float OriginalDamage;
+
+        public HeavyArmorDamageScaleState(bool scaledDamage, bool preserveDistributionBudget, float originalDamage)
+        {
+            ScaledDamage = scaledDamage;
+            PreserveDistributionBudget = preserveDistributionBudget;
+            OriginalDamage = originalDamage;
+        }
+    }
+
     internal static class HeavyArmorRuntimePatcher
     {
+        public static readonly Type[] AddDamageParameterTypes = new Type[]
+        {
+            typeof(float),
+            typeof(Entity),
+            typeof(Vector3),
+            typeof(Vector3),
+            typeof(float),
+            typeof(float),
+            typeof(DamageType),
+            typeof(float),
+            typeof(float),
+            typeof(bool).MakeByRefType()
+        };
+
+        public static readonly Type[] AddWaterDamageParameterTypes = new Type[]
+        {
+            typeof(float),
+            typeof(bool)
+        };
+
+        public static readonly Type[] DamageUtilityDoApplyDamageParameterTypes = new Type[]
+        {
+            typeof(Entity),
+            typeof(PlayableCharacterData[]),
+            typeof(Entity),
+            typeof(Vector3),
+            typeof(Vector3),
+            typeof(float),
+            typeof(float),
+            typeof(float),
+            typeof(float),
+            typeof(float),
+            typeof(Entity),
+            typeof(DamageType),
+            typeof(Action<DamageEvent>),
+            typeof(Ship),
+            typeof(float)
+        };
+
+        public static readonly Type[] DamageUtilityApplyDamageToComponentsParameterTypes = new Type[]
+        {
+            typeof(Entity),
+            typeof(Vector3),
+            typeof(Vector3),
+            typeof(float),
+            typeof(DamageType),
+            typeof(float),
+            typeof(float).MakeByRefType(),
+            typeof(float)
+        };
+
+        public static readonly Type[] HullEffectsApplyImpactParameterTypes = new Type[]
+        {
+            typeof(Vector3),
+            typeof(float),
+            typeof(float)
+        };
+
         [ThreadStatic]
         private static int damageScaleScopeDepth;
+
+        [ThreadStatic]
+        private static int componentDamageDistributionScopeDepth;
+
+        [ThreadStatic]
+        private static int pressureWaterDamageScopeDepth;
 
         public static void ScalePlayerEquipmentDamage(Equipment equipment, ref float damage)
         {
             TryScalePlayerEquipmentDamage(equipment, ref damage);
         }
 
-        public static bool TryScalePlayerEquipmentDamage(Equipment equipment, ref float damage)
+        public static HeavyArmorDamageScaleState TryScalePlayerEquipmentDamage(Equipment equipment, ref float damage)
+        {
+            float ignoredFlawProbabilityFactor = 0f;
+            float ignoredFireChance = 0f;
+            return TryScalePlayerEquipmentDamage(equipment, ref damage, ref ignoredFlawProbabilityFactor, ref ignoredFireChance);
+        }
+
+        public static HeavyArmorDamageScaleState TryScalePlayerEquipmentDamage(
+            Equipment equipment,
+            ref float damage,
+            ref float flawProbabilityFactor,
+            ref float fireChance
+        )
         {
             if (!ShouldScaleDamage(damage) || !IsPlayerShipEquipment(equipment))
-                return false;
+                return new HeavyArmorDamageScaleState(false, false, 0f);
+
+            HeavyArmorDamageScaleState state = new HeavyArmorDamageScaleState(
+                true,
+                IsComponentDamageDistributionScopeActive(),
+                damage
+            );
 
             damage = ScaleDamage(damage);
-            return true;
+
+            if (ShouldScaleRawValue(flawProbabilityFactor))
+                flawProbabilityFactor = ScaleDamage(flawProbabilityFactor);
+
+            if (ShouldScaleRawValue(fireChance))
+                fireChance = ScaleDamage(fireChance);
+
+            return state;
+        }
+
+        public static HeavyArmorDamageScaleState TryScalePlayerWaterDamage(Equipment equipment, ref float damage)
+        {
+            if (IsPressureWaterDamageScopeActive())
+                return new HeavyArmorDamageScaleState(false, false, 0f);
+
+            return TryScalePlayerEquipmentDamage(equipment, ref damage);
         }
 
         public static void ScalePlayerCharacterDamage(PlayableCharacter character, ref float damage)
@@ -5589,37 +5720,80 @@ namespace LongSubmerged10x
             damage = ScaleDamage(damage);
         }
 
-        public static void ScalePlayerCrewAndEffects(
-            Ship target,
-            Vector3 position,
-            float damageRadius,
-            ref float crewDamage,
-            ref float damageEffectsIntensity
-        )
+        public static void ScalePlayerCrewDamage(Ship target, ref float crewDamage)
         {
-            if (!IsHeavyArmorActive() || !CouldAffectPlayerShip(target, position, damageRadius))
+            if (!IsHeavyArmorActive() || !IsPlayerEntity(target) || !ShouldScaleRawValue(crewDamage))
                 return;
 
-            if (ShouldScaleRawValue(crewDamage))
-                crewDamage = ScaleDamage(crewDamage);
-
-            if (ShouldScaleRawValue(damageEffectsIntensity))
-                damageEffectsIntensity = ScaleDamage(damageEffectsIntensity);
+            crewDamage = ScaleDamage(crewDamage);
         }
 
-        public static void BeginDamageScaleScope(bool scaled)
+        public static void ScalePlayerHullImpact(HullEffectsRenderer renderer, ref float intensity)
         {
-            if (scaled)
+            if (!IsHeavyArmorActive() || !IsPlayerHullRenderer(renderer) || !ShouldScaleRawValue(intensity))
+                return;
+
+            intensity = ScaleDamage(intensity);
+        }
+
+        public static bool BeginComponentDamageDistributionScope()
+        {
+            if (!IsHeavyArmorActive())
+                return false;
+
+            componentDamageDistributionScopeDepth++;
+            return true;
+        }
+
+        public static void EndComponentDamageDistributionScope(bool entered)
+        {
+            if (!entered)
+                return;
+
+            if (componentDamageDistributionScopeDepth > 0)
+                componentDamageDistributionScopeDepth--;
+        }
+
+        public static bool BeginPressureWaterDamageScope()
+        {
+            pressureWaterDamageScopeDepth++;
+            return true;
+        }
+
+        public static void EndPressureWaterDamageScope(bool entered)
+        {
+            if (!entered)
+                return;
+
+            if (pressureWaterDamageScopeDepth > 0)
+                pressureWaterDamageScopeDepth--;
+        }
+
+        public static void BeginDamageScaleScope(HeavyArmorDamageScaleState state)
+        {
+            if (state.ScaledDamage)
                 damageScaleScopeDepth++;
         }
 
-        public static void EndDamageScaleScope(bool scaled)
+        public static void EndDamageScaleScope(HeavyArmorDamageScaleState state)
         {
-            if (!scaled)
+            if (!state.ScaledDamage)
                 return;
 
             if (damageScaleScopeDepth > 0)
                 damageScaleScopeDepth--;
+        }
+
+        public static void RestoreComponentDistributionBudget(HeavyArmorDamageScaleState state, ref float result)
+        {
+            if (!state.PreserveDistributionBudget || !ShouldScaleRawValue(result))
+                return;
+
+            float restoredResult = result * LongSubmergedRuntimeSettings.HeavyArmorDamageFactor;
+            if (ShouldScaleRawValue(state.OriginalDamage))
+                result = Mathf.Min(state.OriginalDamage, restoredResult);
+            else
+                result = restoredResult;
         }
 
         private static bool ShouldScaleDamage(float damage)
@@ -5630,6 +5804,16 @@ namespace LongSubmerged10x
         private static bool IsDamageScaleScopeActive()
         {
             return damageScaleScopeDepth > 0;
+        }
+
+        private static bool IsComponentDamageDistributionScopeActive()
+        {
+            return componentDamageDistributionScopeDepth > 0;
+        }
+
+        private static bool IsPressureWaterDamageScopeActive()
+        {
+            return pressureWaterDamageScopeDepth > 0;
         }
 
         private static bool ShouldScaleRawValue(float value)
@@ -5655,6 +5839,15 @@ namespace LongSubmerged10x
 
             try
             {
+                if (IsPlayerEntity(equipment.ParentEntity))
+                    return true;
+            }
+            catch
+            {
+            }
+
+            try
+            {
                 return equipment.GetComponentInParent<PlayerShip>() != null;
             }
             catch
@@ -5670,6 +5863,15 @@ namespace LongSubmerged10x
 
             try
             {
+                if (IsPlayerEntity(character.ParentEntity))
+                    return true;
+            }
+            catch
+            {
+            }
+
+            try
+            {
                 return character.GetComponentInParent<PlayerShip>() != null;
             }
             catch
@@ -5678,22 +5880,47 @@ namespace LongSubmerged10x
             }
         }
 
-        private static bool CouldAffectPlayerShip(Ship target, Vector3 position, float damageRadius)
+        private static bool IsPlayerHullRenderer(HullEffectsRenderer renderer)
         {
-            if (target is PlayerShip)
+            if (renderer == null)
+                return false;
+
+            try
+            {
+                if (IsPlayerEntity(renderer.ParentEntity))
+                    return true;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                return renderer.GetComponentInParent<PlayerShip>() != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsPlayerEntity(Entity entity)
+        {
+            if (entity == null)
+                return false;
+
+            if (entity is PlayerShip)
                 return true;
 
-            if (target != null)
+            try
+            {
+                SandboxEntity sandboxEntity = entity.SandboxEntity;
+                return sandboxEntity != null && sandboxEntity.IsPlayerShip;
+            }
+            catch
+            {
                 return false;
-
-            PlayerShip playerShip = UnityEngine.Object.FindObjectOfType<PlayerShip>();
-            if (playerShip == null)
-                return false;
-
-            // Area damage often has no explicit target, so use a hull-length guard around the blast radius.
-            float guardRadius = Mathf.Max(1f, damageRadius) + 80f;
-            Vector3 delta = playerShip.transform.position - position;
-            return delta.sqrMagnitude <= guardRadius * guardRadius;
+            }
         }
 
         private static bool IsFinite(float value)
@@ -6245,11 +6472,11 @@ namespace LongSubmerged10x
     }
 
     [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "Awake")]
-    internal static class OrangeAlarmPlayerShipInteriorLightingAwakePatch
+    internal static class InteriorLightingPlayerShipInteriorLightingAwakePatch
     {
         private static void Postfix(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting __instance)
         {
-            OrangeAlarmLightingPatcher.ApplyInteriorLighting(
+            InteriorLightingColorPatcher.ApplyInteriorLighting(
                 __instance,
                 "PlayerShipInteriorLighting.Awake",
                 false
@@ -6258,11 +6485,11 @@ namespace LongSubmerged10x
     }
 
     [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "Start")]
-    internal static class OrangeAlarmPlayerShipInteriorLightingStartPatch
+    internal static class InteriorLightingPlayerShipInteriorLightingStartPatch
     {
         private static void Prefix(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting __instance)
         {
-            OrangeAlarmLightingPatcher.ApplyInteriorLighting(
+            InteriorLightingColorPatcher.ApplyInteriorLighting(
                 __instance,
                 "PlayerShipInteriorLighting.Start",
                 false
@@ -6271,11 +6498,11 @@ namespace LongSubmerged10x
     }
 
     [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "ApplyLightControllersPresets")]
-    internal static class OrangeAlarmPlayerShipInteriorLightingApplyPresetsPatch
+    internal static class InteriorLightingPlayerShipInteriorLightingApplyPresetsPatch
     {
         private static void Prefix(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting __instance)
         {
-            OrangeAlarmLightingPatcher.ApplyInteriorLighting(
+            InteriorLightingColorPatcher.ApplyInteriorLighting(
                 __instance,
                 "PlayerShipInteriorLighting.ApplyLightControllersPresets",
                 false
@@ -6284,20 +6511,20 @@ namespace LongSubmerged10x
     }
 
     [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.LightController), "UpdatePresets", new Type[] { typeof(float[]), typeof(float[]) })]
-    internal static class OrangeAlarmLightControllerUpdatePresetsPatch
+    internal static class InteriorLightingLightControllerUpdatePresetsPatch
     {
         private static void Prefix(UBOAT.Game.Scene.Effects.LightController __instance)
         {
-            OrangeAlarmLightingPatcher.ApplyLightController(__instance, "LightController.UpdatePresets");
+            InteriorLightingColorPatcher.ApplyLightController(__instance, "LightController.UpdatePresets");
         }
     }
 
     [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.FillLight), "UpdatePresets", new Type[] { typeof(float[]) })]
-    internal static class OrangeAlarmFillLightUpdatePresetsPatch
+    internal static class InteriorLightingFillLightUpdatePresetsPatch
     {
         private static void Prefix(UBOAT.Game.Scene.Effects.FillLight __instance)
         {
-            OrangeAlarmLightingPatcher.ApplyFillLight(__instance, "FillLight.UpdatePresets");
+            InteriorLightingColorPatcher.ApplyFillLight(__instance, "FillLight.UpdatePresets");
         }
     }
 
@@ -6552,78 +6779,187 @@ namespace LongSubmerged10x
         }
     }
 
-    [HarmonyPatch(typeof(Hull), "AddDamage")]
+    [HarmonyPatch]
     internal static class HeavyArmorHullAddDamagePatch
     {
-        private static void Prefix(Hull __instance, ref float damage, out bool __state)
+        private static MethodBase TargetMethod()
         {
-            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(__instance, ref damage);
+            return AccessTools.Method(typeof(Hull), "AddDamage", HeavyArmorRuntimePatcher.AddDamageParameterTypes);
+        }
+
+        private static void Prefix(
+            Hull __instance,
+            ref float damage,
+            ref float flawProbabilityFactor,
+            ref float fireChance,
+            out HeavyArmorDamageScaleState __state
+        )
+        {
+            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(
+                __instance,
+                ref damage,
+                ref flawProbabilityFactor,
+                ref fireChance
+            );
             HeavyArmorRuntimePatcher.BeginDamageScaleScope(__state);
         }
 
-        private static void Finalizer(bool __state)
+        private static void Postfix(HeavyArmorDamageScaleState __state, ref float __result)
+        {
+            HeavyArmorRuntimePatcher.RestoreComponentDistributionBudget(__state, ref __result);
+        }
+
+        private static void Finalizer(HeavyArmorDamageScaleState __state)
         {
             HeavyArmorRuntimePatcher.EndDamageScaleScope(__state);
         }
     }
 
-    [HarmonyPatch(typeof(Equipment), "AddDamage")]
+    [HarmonyPatch]
     internal static class HeavyArmorEquipmentAddDamagePatch
     {
-        private static void Prefix(Equipment __instance, ref float damage, out bool __state)
+        private static MethodBase TargetMethod()
         {
-            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(__instance, ref damage);
+            return AccessTools.Method(typeof(Equipment), "AddDamage", HeavyArmorRuntimePatcher.AddDamageParameterTypes);
+        }
+
+        private static void Prefix(
+            Equipment __instance,
+            ref float damage,
+            ref float flawProbabilityFactor,
+            ref float fireChance,
+            out HeavyArmorDamageScaleState __state
+        )
+        {
+            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(
+                __instance,
+                ref damage,
+                ref flawProbabilityFactor,
+                ref fireChance
+            );
             HeavyArmorRuntimePatcher.BeginDamageScaleScope(__state);
         }
 
-        private static void Finalizer(bool __state)
+        private static void Postfix(HeavyArmorDamageScaleState __state, ref float __result)
+        {
+            HeavyArmorRuntimePatcher.RestoreComponentDistributionBudget(__state, ref __result);
+        }
+
+        private static void Finalizer(HeavyArmorDamageScaleState __state)
         {
             HeavyArmorRuntimePatcher.EndDamageScaleScope(__state);
         }
     }
 
-    [HarmonyPatch(typeof(Equipment), "AddWaterDamage")]
+    [HarmonyPatch]
     internal static class HeavyArmorEquipmentAddWaterDamagePatch
     {
-        private static void Prefix(Equipment __instance, ref float damage, out bool __state)
+        private static MethodBase TargetMethod()
         {
-            __state = HeavyArmorRuntimePatcher.TryScalePlayerEquipmentDamage(__instance, ref damage);
+            return AccessTools.Method(typeof(Equipment), "AddWaterDamage", HeavyArmorRuntimePatcher.AddWaterDamageParameterTypes);
+        }
+
+        private static void Prefix(Equipment __instance, ref float damage, out HeavyArmorDamageScaleState __state)
+        {
+            __state = HeavyArmorRuntimePatcher.TryScalePlayerWaterDamage(__instance, ref damage);
             HeavyArmorRuntimePatcher.BeginDamageScaleScope(__state);
         }
 
-        private static void Finalizer(bool __state)
+        private static void Finalizer(HeavyArmorDamageScaleState __state)
         {
             HeavyArmorRuntimePatcher.EndDamageScaleScope(__state);
         }
     }
 
-    [HarmonyPatch(typeof(PlayableCharacter), "AddDamage")]
+    [HarmonyPatch]
     internal static class HeavyArmorPlayableCharacterAddDamagePatch
     {
+        private static MethodBase TargetMethod()
+        {
+            return AccessTools.Method(typeof(PlayableCharacter), "AddDamage", HeavyArmorRuntimePatcher.AddDamageParameterTypes);
+        }
+
         private static void Prefix(PlayableCharacter __instance, ref float damage)
         {
             HeavyArmorRuntimePatcher.ScalePlayerCharacterDamage(__instance, ref damage);
         }
     }
 
-    [HarmonyPatch(typeof(DamageUtility), "DoApplyDamage")]
+    [HarmonyPatch]
     internal static class HeavyArmorDamageUtilityDoApplyDamagePatch
     {
-        private static void Prefix(
-            Vector3 position,
-            float damageRadius,
-            ref float crewDamage,
-            ref float damageEffectsIntensity,
-            Ship target
-        )
+        private static MethodBase TargetMethod()
         {
-            HeavyArmorRuntimePatcher.ScalePlayerCrewAndEffects(
-                target,
-                position,
-                damageRadius,
-                ref crewDamage,
-                ref damageEffectsIntensity
+            return AccessTools.Method(
+                typeof(DamageUtility),
+                "DoApplyDamage",
+                HeavyArmorRuntimePatcher.DamageUtilityDoApplyDamageParameterTypes
             );
+        }
+
+        private static void Prefix(Ship target, ref float crewDamage)
+        {
+            HeavyArmorRuntimePatcher.ScalePlayerCrewDamage(target, ref crewDamage);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HeavyArmorDamageUtilityApplyDamageToComponentsPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(DamageUtility),
+                "ApplyDamageToComponents",
+                HeavyArmorRuntimePatcher.DamageUtilityApplyDamageToComponentsParameterTypes
+            );
+        }
+
+        private static void Prefix(out bool __state)
+        {
+            __state = HeavyArmorRuntimePatcher.BeginComponentDamageDistributionScope();
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            HeavyArmorRuntimePatcher.EndComponentDamageDistributionScope(__state);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HeavyArmorApplyWaterDamageToPlayerShipDoDamageTickPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            return AccessTools.Method(typeof(ApplyWaterDamageToPlayerShip), "DoDamageTick", new Type[] { });
+        }
+
+        private static void Prefix(out bool __state)
+        {
+            __state = HeavyArmorRuntimePatcher.BeginPressureWaterDamageScope();
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            HeavyArmorRuntimePatcher.EndPressureWaterDamageScope(__state);
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class HeavyArmorHullEffectsRendererApplyImpactPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            return AccessTools.Method(
+                typeof(HullEffectsRenderer),
+                "ApplyImpact",
+                HeavyArmorRuntimePatcher.HullEffectsApplyImpactParameterTypes
+            );
+        }
+
+        private static void Prefix(HullEffectsRenderer __instance, ref float intensity)
+        {
+            HeavyArmorRuntimePatcher.ScalePlayerHullImpact(__instance, ref intensity);
         }
     }
 }
@@ -6657,10 +6993,10 @@ namespace LongSubmerged10x
     report.note("SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant.")
     report.note("Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.")
     report.note("Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone.")
-    report.note("Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3 sans toucher a la profondeur d'ecrasement.")
-    report.note("Blindage lourd : migration v16 force la case sur OFF une seule fois pour les installations existantes.")
+    report.note("Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3.")
+    report.note("Blindage lourd : pression et profondeur d'ecrasement restent vanilla, avec migration settings v16 sur OFF une seule fois.")
     report.note("Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.")
-    report.note("Lumiere alarme : rendu rouge vanilla remplace par orange ambre sans changer le mode Alarm.")
+    report.note("Eclairage interieur : alarme rouge vanilla remplacee par orange ambre et SilentRun bleu remplace par vert, sans changer les modes.")
     report.note("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel.")
 
 
@@ -6699,7 +7035,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Explosion magnetique prematuree torpilles : {args.torpedo_premature_magnetic_chance:g}",
         "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion et Appeler renforts",
         "- Bouton Appeler renforts : appelle des U-boats amis pres du joueur; avions/warships seulement si des spawners amis compatibles existent",
-        "- Lumiere alarme : rouge vanilla remplace visuellement par orange ambre, gameplay Alarm inchange",
+        "- Eclairage interieur : rouge Alarm remplace visuellement par orange ambre, bleu SilentRun remplace visuellement par vert, gameplay inchange",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
         f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme",
@@ -6713,13 +7049,13 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "Notes :",
         "- La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.",
         "- La lumiere d'alarme est orange ambre uniquement au rendu ; le mode Alarm et ses effets restent vanilla.",
-        "- La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.",
+        "- La lumiere SilentRun est verte uniquement au rendu ; le mode SilentRun et ses effets restent vanilla.",
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.",
         "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.",
         "- Mega Batterie cochee rend la batterie infinie ; decochee, la batterie revient vanilla.",
         "- Blindage lourd est desactive par defaut ; coche dans F10, il divise les degats joueur par 3 sans rendre le sous-marin immortel.",
-        "- Migration v16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois, puis tes choix F10 sont conserves.",
+        "- Migration settings v16 / v1.4.16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois, puis tes choix F10 sont conserves.",
         "- Super discrétion cochee divise le bruit et les detectabilites joueur par 3 sans supprimer les contacts ennemis.",
         "- La profondeur d'ecrasement reste vanilla : depasser la limite critique peut toujours etre fatal.",
         "- Les sliders F10 sont persistants et s'appliquent en partie avec un debounce ou Reappliquer maintenant.",

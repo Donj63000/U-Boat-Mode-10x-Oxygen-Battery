@@ -35,7 +35,7 @@
 | **Long Oxygen** | `Oxygen = 100` | Targets about **90 days underwater** instead of only a few days. |
 | **Mega Torpedoes** | `Torpedoes = 10` | Scales damage, crew damage, blast radius, visual blast radius, and explosion intensity. |
 | **Mega Sonar** | `Sonar = 3` | Scales hydrophone listening range while leaving arcs and surface modifiers alone. |
-| **Heavy Armor** | `Heavy Armor = off` | Optional F10 toggle that reduces player submarine damage to about one third while keeping leaks, fires, repairs, pressure, and destruction possible. |
+| **Heavy Armor x3** | `Heavy Armor = off` | Optional F10 toggle that reduces player submarine damage to about one third while keeping leaks, fires, repairs, pressure, and destruction possible. |
 | **Super discrétion / Super Stealth** | `Super discrétion = off` | When enabled, reduces player submarine noise and detectability to about one third without making it invisible. |
 | **SuperSpeed** | `SuperSpeed = 8` | Boosts the two fastest forward gears for faster travel. |
 | **Runtime Menu** | `F10` | Lets you tune the mod in game without rebuilding the mod files. |
@@ -83,7 +83,7 @@ Press `F10` after loading a save. Press `F10` again or `Escape` to close the men
 | **SuperSpeed** | `1` | `8` | `20` |
 | **Torpedoes** | `1` | `10` | `10` |
 | **Sonar** | `1` | `3` | `10` |
-| **Heavy Armor** | `off` | `off` | `on`, x3 protection |
+| **Heavy Armor x3** | `off` | `off` | `on`, x3 protection |
 | **Super discrétion / Super Stealth** | `off` | `off` | `on`, x3 stealth |
 
 The menu includes:
@@ -91,8 +91,21 @@ The menu includes:
 - **Default**: restores the shipped profile.
 - **Reapply now**: reapplies the current values immediately in the loaded game.
 - Saved settings through `PlayerPrefs`, so your tuning persists between sessions.
-- **Heavy Armor**: optional toggle that reduces incoming player submarine and crew damage by x3. It is off by default, and v1.4.13 turns old saved Heavy Armor settings off once during migration. Crush depth remains vanilla and can still be fatal.
+- **Heavy Armor x3**: optional toggle that reduces incoming player submarine and crew damage by x3. It is off by default, and migration settings v16 / v1.4.16 turns old saved Heavy Armor settings off once during migration. Crush depth remains vanilla and can still be fatal.
 - **Super discrétion / Super Stealth**: optional toggle that divides player noise and detectability by x3. Enemy contacts and detection mechanics still exist.
+
+## Heavy Armor x3
+
+Heavy Armor is a manual F10 mode for players who want a tougher submarine without making it immortal.
+
+What is included:
+
+- Reduces player submarine equipment and hull damage to about one third.
+- Reduces player crew damage when the damage event explicitly targets the player ship.
+- Reduces flaw and fire chances together with player equipment damage.
+- Keeps pressure damage and crush depth vanilla, so diving too deep can still be fatal.
+- Keeps explosions scoped to the player ship instead of globally weakening every target in a shared blast.
+- Keeps the mode disabled by default; migration settings v16 / v1.4.16 turns old saved Heavy Armor settings off once, then preserves later F10 choices.
 
 ## Mega Torpedoes
 

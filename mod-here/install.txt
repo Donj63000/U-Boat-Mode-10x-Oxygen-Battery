@@ -43,7 +43,7 @@ Default settings:
 - Torpedoes: 10, stronger explosions and better locked-target behavior.
 - Sonar: 3, boosted hydrophone range.
 - Heavy Armor: disabled by default, can reduce player submarine damage to about one third when enabled in F10.
-- Heavy Armor migration: v1.4.13 turns old saved Heavy Armor settings off once, then keeps your F10 choices.
+- Heavy Armor migration: settings v16 / v1.4.16 turns old saved Heavy Armor settings off once, then keeps your F10 choices.
 - Super discrétion / Super Stealth: disabled by default, can reduce player noise and detectability to about one third.
 
 Use the Default button in the F10 menu if you want to restore the shipped profile.

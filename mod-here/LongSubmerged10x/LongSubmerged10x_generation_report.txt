@@ -18,10 +18,10 @@ Changements :
 - SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant.
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.
 - Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone.
-- Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3 sans toucher a la profondeur d'ecrasement.
-- Blindage lourd : migration v16 force la case sur OFF une seule fois pour les installations existantes.
+- Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3.
+- Blindage lourd : pression et profondeur d'ecrasement restent vanilla, avec migration settings v16 sur OFF une seule fois.
 - Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.
-- Lumiere alarme : rendu rouge vanilla remplace par orange ambre sans changer le mode Alarm.
+- Eclairage interieur : alarme rouge vanilla remplacee par orange ambre et SilentRun bleu remplace par vert, sans changer les modes.
 - Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel.
 - General.xlsx / Settings / Underwater Discipline Loss: Normal: 1e-05 -> 6.666666666666667e-07; Hard: 1e-05 -> 6.666666666666667e-07; Very Hard: 1e-05 -> 6.666666666666667e-07 | Discipline sous l'eau environ 15x moins punitive.
 - General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
@@ -38,6 +38,9 @@ Changements :
 - Entities.xlsx / Equipment / Electric Engines | Engines, Electric Engines | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Electric Engines IIA | Engines, Electric Engines IIA | 0 | 1939-01-01 00:00:00 | 4 | 0.6: EnergyUsage: 0.000035 -> 3.5e-06
 - Entities.xlsx / Equipment / Gyrocompass | Gyrocompass | 0 | 1939-01-01 00:00:00 | 1 | 1: EnergyUsage: 0.000015 -> 1.5e-06
+- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Cache
+- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Data Sheets
+- Cache vidé : C:\Users\nodig\AppData\LocalLow\Deep Water Studio\UBOAT\Temp
 
 Avertissements :
 - Realistic Travel\General.xlsx: ligne introuvable dans Settings : 'Fatigue - Max Penalty'

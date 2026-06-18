@@ -31,7 +31,7 @@ Paramètres utilisés :
 - Explosion magnetique prematuree torpilles : 0
 - Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion et Appeler renforts
 - Bouton Appeler renforts : appelle des U-boats amis pres du joueur; avions/warships seulement si des spawners amis compatibles existent
-- Lumiere alarme : rouge vanilla remplace visuellement par orange ambre, gameplay Alarm inchange
+- Eclairage interieur : rouge Alarm remplace visuellement par orange ambre, bleu SilentRun remplace visuellement par vert, gameplay inchange
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
 - Patch runtime : LongSubmerged10xPatch_1_4_16, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme
@@ -45,13 +45,13 @@ Installation :
 Notes :
 - La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.
 - La lumiere d'alarme est orange ambre uniquement au rendu ; le mode Alarm et ses effets restent vanilla.
-- La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.
+- La lumiere SilentRun est verte uniquement au rendu ; le mode SilentRun et ses effets restent vanilla.
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.
 - Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.
 - Mega Batterie cochee rend la batterie infinie ; decochee, la batterie revient vanilla.
 - Blindage lourd est desactive par defaut ; coche dans F10, il divise les degats joueur par 3 sans rendre le sous-marin immortel.
-- Migration v16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois, puis tes choix F10 sont conserves.
+- Migration settings v16 / v1.4.16 : les anciennes installations repassent Blindage lourd sur OFF une seule fois, puis tes choix F10 sont conserves.
 - Super discrétion cochee divise le bruit et les detectabilites joueur par 3 sans supprimer les contacts ennemis.
 - La profondeur d'ecrasement reste vanilla : depasser la limite critique peut toujours etre fatal.
 - Les sliders F10 sont persistants et s'appliquent en partie avec un debounce ou Reappliquer maintenant.
