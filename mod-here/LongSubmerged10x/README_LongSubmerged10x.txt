@@ -1,4 +1,4 @@
-Long Submerged 10x+ v1.4.13
+Long Submerged 10x+ v1.4.15
 
 Paramètres utilisés :
 - Oxygene long : applique au runtime sur le drain negatif de respiration
@@ -11,7 +11,7 @@ Paramètres utilisés :
 - Deux derniers crans avant : vitesse/propulsion x8
 - Deux derniers crans avant : carburant x8
 - Vitesse max sous-marin joueur : 45 km/h
-- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3
+- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Appeler renforts
 - Slider Batterie : valeur legacy conservee, l'infini depend seulement de la case Mega Batterie
 - Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours
 - Slider SuperVitesse : 1 = vanilla, 8 = defaut actuel, 20 = maximum
@@ -29,10 +29,12 @@ Paramètres utilisés :
 - DudChance torpilles : 0
 - Defaillance magnetique torpilles : 0
 - Explosion magnetique prematuree torpilles : 0
-- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd et Super discrétion
+- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion et Appeler renforts
+- Bouton Appeler renforts : tente 2 patrouilles avions + 2 patrouilles warships amies, fallback 2 U-boats amis si indisponible
+- Lumiere alarme : rouge vanilla remplace visuellement par orange ambre, gameplay Alarm inchange
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
-- Patch runtime : LongSubmerged10xPatch_1_4_13, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, menu et stabilite surface/alarme
+- Patch runtime : LongSubmerged10xPatch_1_4_15, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme
 
 Installation :
 1. Fermer UBOAT.
@@ -42,6 +44,7 @@ Installation :
 
 Notes :
 - La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.
+- La lumiere d'alarme est orange ambre uniquement au rendu ; le mode Alarm et ses effets restent vanilla.
 - La lumière bleue reste vanilla et doit toujours aider en immersion silencieuse.
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.
@@ -69,7 +72,7 @@ Compteurs de génération :
 - Lignes EnergyUsage consommation : 6
 - Lignes EnergyUsage recharge : 0
 - Mega Batterie : case F10 active = batterie infinie, pompe incluse
-- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3 et bouton Par defaut
+- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3, Appeler renforts et bouton Par defaut
 - SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant
 - Lignes vitesse sous-marin joueur : 0
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee

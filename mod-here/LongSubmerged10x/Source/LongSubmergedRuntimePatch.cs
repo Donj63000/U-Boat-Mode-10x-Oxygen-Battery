@@ -5,12 +5,14 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using HarmonyLib;
 using UBOAT.Game;
+using UBOAT.Game.Core;
 using UBOAT.Game.Core.Data;
 using UBOAT.Game.Scene.Characters;
 using UBOAT.Game.Scene.Entities;
 using UBOAT.Game.Scene.Items;
 using UBOAT.Game.Scene.Utilities;
 using UBOAT.Game.Sandbox;
+using UBOAT.Game.Sandbox.Missions;
 using UBOAT.Game.UI.Notifications;
 using UBOAT.Game.UI.Resources;
 using UnityEngine;
@@ -23,7 +25,7 @@ namespace LongSubmerged10x
     // elle charge les reglages, cree le menu F10, installe les hooks Harmony et lance une premiere passe runtime.
     public sealed class LongSubmergedRuntimePatchMod : IUserMod
     {
-        private const string RuntimeVersion = "1.4.13";
+        private const string RuntimeVersion = "1.4.15";
 
         public string Name
         {
@@ -46,7 +48,7 @@ namespace LongSubmerged10x
 
             // DonJ : je patche chaque hook un par un. Un patch rate ne doit jamais empecher la batterie,
             // l'oxygene, les torpilles ou le menu de continuer a fonctionner avec les autres hooks valides.
-            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix1413"));
+            LongSubmergedRuntimePatcher.PatchSafely(new Harmony("donj.longsubmerged10x.runtimefix1415"));
 
             try
             {
@@ -106,7 +108,12 @@ namespace LongSubmerged10x
             typeof(HeavyArmorPlayableCharacterAddDamagePatch),
             typeof(HeavyArmorDamageUtilityDoApplyDamagePatch),
             typeof(ResourceGuiGetTooltipContentsPatch),
-            typeof(ResourceGuiUpdateDisplayedValuePatch)
+            typeof(ResourceGuiUpdateDisplayedValuePatch),
+            typeof(OrangeAlarmPlayerShipInteriorLightingAwakePatch),
+            typeof(OrangeAlarmPlayerShipInteriorLightingStartPatch),
+            typeof(OrangeAlarmPlayerShipInteriorLightingApplyPresetsPatch),
+            typeof(OrangeAlarmLightControllerUpdatePresetsPatch),
+            typeof(OrangeAlarmFillLightUpdatePresetsPatch)
         };
 
         public static void PatchSafely(Harmony harmony)
@@ -127,6 +134,564 @@ namespace LongSubmerged10x
                     Debug.LogWarning("[LongSubmerged10x] Harmony patch skipped: " + patchType.Name + " -> " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
+        }
+    }
+
+    internal static class OrangeAlarmLightingPatcher
+    {
+        private static readonly Color AlarmOrangeColor = new Color(1f, 0.55f, 0.12f, 1f);
+
+        private static readonly FieldInfo AlarmInteriorFogColorField =
+            AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "alarmInteriorFogColor");
+
+        private static readonly FieldInfo AlarmLightsColorMultiplierField =
+            AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "alarmLightsColorMultiplier");
+
+        private static readonly MethodInfo ApplyColorMultiplierMethod =
+            AccessTools.Method(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "ApplyColorMultiplier");
+
+        private static readonly HashSet<string> MissingMemberWarnings = new HashSet<string>();
+
+        private static bool refreshingInteriorLighting;
+
+        public static void ApplyInteriorLighting(
+            UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting,
+            string reason,
+            bool refreshPresets
+        )
+        {
+            if (lighting == null)
+                return;
+
+            try
+            {
+                ApplyPrivateInteriorColors(lighting);
+                ApplyLightControllers(lighting, reason);
+                ApplyColorMultiplier(lighting);
+
+                if (refreshPresets && !refreshingInteriorLighting)
+                {
+                    refreshingInteriorLighting = true;
+                    try
+                    {
+                        lighting.ApplyLightControllersPresets();
+                    }
+                    finally
+                    {
+                        refreshingInteriorLighting = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void ApplyLightController(
+            UBOAT.Game.Scene.Effects.LightController controller,
+            string reason
+        )
+        {
+            if (controller == null)
+                return;
+
+            try
+            {
+                if (!ColorsEqual(controller.AlarmColor, AlarmOrangeColor))
+                    controller.AlarmColor = AlarmOrangeColor;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void ApplyFillLight(
+            UBOAT.Game.Scene.Effects.FillLight fillLight,
+            string reason
+        )
+        {
+            if (fillLight == null)
+                return;
+
+            try
+            {
+                if (!ColorsEqual(fillLight.RedColor, AlarmOrangeColor))
+                    fillLight.RedColor = AlarmOrangeColor;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        private static void ApplyPrivateInteriorColors(
+            UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting
+        )
+        {
+            SetColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor", AlarmOrangeColor);
+            SetColorField(lighting, AlarmLightsColorMultiplierField, "alarmLightsColorMultiplier", Color.white);
+        }
+
+        private static void ApplyLightControllers(
+            UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting,
+            string reason
+        )
+        {
+            UBOAT.Game.Scene.Effects.LightController[] controllers =
+                lighting.GetComponentsInChildren<UBOAT.Game.Scene.Effects.LightController>(true);
+            for (int index = 0; index < controllers.Length; index++)
+                ApplyLightController(controllers[index], reason);
+
+            UBOAT.Game.Scene.Effects.FillLight[] fillLights =
+                lighting.GetComponentsInChildren<UBOAT.Game.Scene.Effects.FillLight>(true);
+            for (int index = 0; index < fillLights.Length; index++)
+                ApplyFillLight(fillLights[index], reason);
+        }
+
+        private static void ApplyColorMultiplier(
+            UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting
+        )
+        {
+            if (ApplyColorMultiplierMethod == null)
+            {
+                WarnMissingMember("ApplyColorMultiplier");
+                return;
+            }
+
+            ApplyColorMultiplierMethod.Invoke(lighting, null);
+        }
+
+        private static void SetColorField(object target, FieldInfo field, string memberName, Color value)
+        {
+            if (field == null)
+            {
+                WarnMissingMember(memberName);
+                return;
+            }
+
+            object current = field.GetValue(target);
+            if (current is Color && ColorsEqual((Color)current, value))
+                return;
+
+            field.SetValue(target, value);
+        }
+
+        private static bool ColorsEqual(Color left, Color right)
+        {
+            return Mathf.Abs(left.r - right.r) < 0.0001f
+                && Mathf.Abs(left.g - right.g) < 0.0001f
+                && Mathf.Abs(left.b - right.b) < 0.0001f
+                && Mathf.Abs(left.a - right.a) < 0.0001f;
+        }
+
+        private static void WarnMissingMember(string memberName)
+        {
+            if (!MissingMemberWarnings.Add(memberName))
+                return;
+
+            Debug.LogWarning("[LongSubmerged10x] Orange alarm lighting skipped missing member: " + memberName + ".");
+        }
+    }
+
+    internal static class ReinforcementRuntimeController
+    {
+        private const float ReinforcementCooldownSeconds = 300f;
+        private const int RequiredPrimaryAirPatrolCalls = 2;
+        private const int RequiredPrimaryWarshipCalls = 2;
+        private const int RequiredFallbackSubmarineCalls = 2;
+
+        private static readonly List<SandboxGroup> ActiveReinforcementGroups = new List<SandboxGroup>();
+
+        private static bool reinforcementCallInProgress;
+        private static float nextAllowedReinforcementCallTime;
+
+        public static string GetStatusText()
+        {
+            CleanupActiveGroups();
+
+            if (ActiveReinforcementGroups.Count > 0)
+                return "Renforts deja actifs";
+
+            float remainingSeconds = GetCooldownRemainingSeconds();
+            if (remainingSeconds > 0f)
+                return "Cooldown " + Mathf.CeilToInt(remainingSeconds) + "s";
+
+            return "Pret";
+        }
+
+        public static string CallReinforcements(string reason)
+        {
+            CleanupActiveGroups();
+
+            if (reinforcementCallInProgress)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement call skipped: already running.");
+                return "Appel deja en cours";
+            }
+
+            if (ActiveReinforcementGroups.Count > 0)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement call skipped: active reinforcement groups still exist.");
+                return "Renforts deja actifs";
+            }
+
+            float remainingSeconds = GetCooldownRemainingSeconds();
+            if (remainingSeconds > 0f)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement call skipped: cooldown active for " + remainingSeconds + "s.");
+                return "Cooldown " + Mathf.CeilToInt(remainingSeconds) + "s";
+            }
+
+            reinforcementCallInProgress = true;
+            try
+            {
+                Debug.Log("[LongSubmerged10x] Reinforcement call requested: " + SafeReason(reason) + ".");
+
+                PlayerShip playerShip = UnityEngine.Object.FindObjectOfType<PlayerShip>();
+                if (playerShip == null)
+                    return FailWithoutCooldown("Aucun sous-marin joueur", "player ship missing");
+
+                SandboxGroup playerGroup = ResolvePlayerGroup(playerShip);
+                if (playerGroup == null)
+                    return FailWithoutCooldown("Groupe joueur introuvable", "player sandbox group missing");
+
+                Country playerCountry = ResolvePlayerCountry(playerShip, playerGroup);
+                if (playerCountry == null)
+                    return FailWithoutCooldown("Pays joueur introuvable", "player country missing");
+
+                Sandbox sandbox = ResolveSandbox();
+                List<Country> friendlyCountries = BuildFriendlyCountries(sandbox, playerCountry);
+                if (friendlyCountries.Count == 0)
+                    return FailWithoutCooldown("Aucun pays ami", "no friendly country found");
+
+                nextAllowedReinforcementCallTime = Time.unscaledTime + ReinforcementCooldownSeconds;
+
+                List<SandboxGroup> primaryGroups = new List<SandboxGroup>();
+                int airGroups = SpawnFriendlyPatrols(
+                    "LongSubmerged Air Reinforcement",
+                    "Entities/Air Patrol",
+                    "Air Patrol",
+                    true,
+                    RequiredPrimaryAirPatrolCalls,
+                    friendlyCountries,
+                    playerCountry,
+                    playerGroup,
+                    primaryGroups
+                );
+                int warshipGroups = SpawnFriendlyPatrols(
+                    "LongSubmerged Warship Reinforcement",
+                    "Entities/Warships",
+                    "Warships",
+                    false,
+                    RequiredPrimaryWarshipCalls,
+                    friendlyCountries,
+                    playerCountry,
+                    playerGroup,
+                    primaryGroups
+                );
+
+                if (airGroups >= RequiredPrimaryAirPatrolCalls && warshipGroups >= RequiredPrimaryWarshipCalls)
+                {
+                    TrackCreatedGroups(primaryGroups);
+                    Debug.Log("[LongSubmerged10x] Reinforcement call spawned primary groups: air=" + airGroups + ", warships=" + warshipGroups + ".");
+                    return "Renforts appeles";
+                }
+
+                DestroyCreatedGroups(primaryGroups, "primary incomplete");
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement call primary fallback: air=" + airGroups + ", warships=" + warshipGroups + ".");
+
+                List<SandboxGroup> fallbackGroups = new List<SandboxGroup>();
+                int submarineGroups = SpawnFriendlyPatrols(
+                    "LongSubmerged U-boat Reinforcement",
+                    "Entities/Submarine",
+                    "Submarine",
+                    false,
+                    RequiredFallbackSubmarineCalls,
+                    friendlyCountries,
+                    playerCountry,
+                    playerGroup,
+                    fallbackGroups
+                );
+
+                if (submarineGroups >= RequiredFallbackSubmarineCalls)
+                {
+                    TrackCreatedGroups(fallbackGroups);
+                    Debug.Log("[LongSubmerged10x] Reinforcement call spawned fallback U-boats: submarines=" + submarineGroups + ".");
+                    return "Fallback U-boats";
+                }
+
+                DestroyCreatedGroups(fallbackGroups, "fallback incomplete");
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement call failed: no complete friendly fallback was available.");
+                return "Aucun renfort ami disponible";
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                return "Erreur renforts";
+            }
+            finally
+            {
+                reinforcementCallInProgress = false;
+            }
+        }
+
+        private static int SpawnFriendlyPatrols(
+            string namePrefix,
+            string displayNameKey,
+            string patrolType,
+            bool airborne,
+            int requiredCalls,
+            List<Country> friendlyCountries,
+            Country playerCountry,
+            SandboxGroup playerGroup,
+            List<SandboxGroup> createdGroups
+        )
+        {
+            int spawnedCount = 0;
+            for (int attemptIndex = 0; attemptIndex < requiredCalls; attemptIndex++)
+            {
+                SandboxGroup group = SpawnOneFriendlyPatrol(
+                    namePrefix + " " + (attemptIndex + 1),
+                    displayNameKey,
+                    patrolType,
+                    airborne,
+                    attemptIndex,
+                    friendlyCountries,
+                    playerCountry,
+                    playerGroup
+                );
+
+                if (group == null)
+                    continue;
+
+                createdGroups.Add(group);
+                spawnedCount++;
+            }
+
+            return spawnedCount;
+        }
+
+        private static SandboxGroup SpawnOneFriendlyPatrol(
+            string groupName,
+            string displayNameKey,
+            string patrolType,
+            bool airborne,
+            int attemptIndex,
+            List<Country> friendlyCountries,
+            Country playerCountry,
+            SandboxGroup playerGroup
+        )
+        {
+            Vector2 preferredDirection = GetPreferredDirection(playerGroup, attemptIndex, airborne);
+            for (int countryIndex = 0; countryIndex < friendlyCountries.Count; countryIndex++)
+            {
+                Country country = friendlyCountries[countryIndex];
+                if (!IsFriendlyCountry(country, playerCountry))
+                    continue;
+
+                SandboxMobileGroup group = null;
+                try
+                {
+                    group = MissionUtility.SpawnPatrol(
+                        groupName,
+                        new LocalizedString(displayNameKey),
+                        patrolType,
+                        false,
+                        country,
+                        preferredDirection,
+                        airborne,
+                        true
+                    );
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[LongSubmerged10x] Reinforcement patrol spawn failed for " + patrolType + "/" + SafeCountryCode(country) + ": " + ex.GetType().Name + ": " + ex.Message);
+                }
+
+                if (group == null)
+                    continue;
+
+                if (!IsFriendlyGroup(group, playerCountry))
+                {
+                    Debug.LogWarning("[LongSubmerged10x] Reinforcement patrol rejected non-friendly group: " + patrolType + "/" + SafeCountryCode(group.Country) + ".");
+                    DestroyCreatedGroup(group, "non-friendly group");
+                    continue;
+                }
+
+                Debug.Log("[LongSubmerged10x] Reinforcement patrol spawned: " + patrolType + "/" + SafeCountryCode(group.Country) + " at " + group.Position + ".");
+                return group;
+            }
+
+            Debug.LogWarning("[LongSubmerged10x] Reinforcement patrol unavailable for friendly countries: " + patrolType + ".");
+            return null;
+        }
+
+        private static SandboxGroup ResolvePlayerGroup(PlayerShip playerShip)
+        {
+            if (playerShip == null)
+                return null;
+
+            if (playerShip.SandboxGroup != null)
+                return playerShip.SandboxGroup;
+
+            SandboxPlayerWolfpack wolfpack = playerShip.SandboxPlayerShip;
+            return wolfpack as SandboxGroup;
+        }
+
+        private static Country ResolvePlayerCountry(PlayerShip playerShip, SandboxGroup playerGroup)
+        {
+            if (playerGroup != null && playerGroup.Country != null)
+                return playerGroup.Country;
+
+            if (playerShip != null && playerShip.SandboxEntity != null && playerShip.SandboxEntity.Country != null)
+                return playerShip.SandboxEntity.Country;
+
+            if (playerShip != null)
+                return playerShip.Country;
+
+            return null;
+        }
+
+        private static Sandbox ResolveSandbox()
+        {
+            if (Sandbox.Instance != null)
+                return Sandbox.Instance;
+
+            return UnityEngine.Object.FindObjectOfType<Sandbox>();
+        }
+
+        private static List<Country> BuildFriendlyCountries(Sandbox sandbox, Country playerCountry)
+        {
+            List<Country> friendlyCountries = new List<Country>();
+            AddFriendlyCountry(friendlyCountries, playerCountry, playerCountry);
+
+            if (sandbox != null && sandbox.Countries != null)
+            {
+                Country[] countries = sandbox.Countries;
+                for (int index = 0; index < countries.Length; index++)
+                    AddFriendlyCountry(friendlyCountries, countries[index], playerCountry);
+            }
+
+            return friendlyCountries;
+        }
+
+        private static void AddFriendlyCountry(List<Country> countries, Country candidate, Country playerCountry)
+        {
+            if (!IsFriendlyCountry(candidate, playerCountry))
+                return;
+
+            for (int index = 0; index < countries.Count; index++)
+            {
+                if (countries[index] == candidate)
+                    return;
+            }
+
+            countries.Add(candidate);
+        }
+
+        private static bool IsFriendlyGroup(SandboxGroup group, Country playerCountry)
+        {
+            return group != null && IsFriendlyCountry(group.Country, playerCountry);
+        }
+
+        private static bool IsFriendlyCountry(Country candidate, Country playerCountry)
+        {
+            if (candidate == null || playerCountry == null)
+                return false;
+
+            if (candidate == playerCountry)
+                return true;
+
+            return playerCountry.GetRelationWith(candidate) == Country.Relation.Ally;
+        }
+
+        private static Vector2 GetPreferredDirection(SandboxGroup playerGroup, int attemptIndex, bool airborne)
+        {
+            Vector2 direction = Vector2.up;
+            if (playerGroup != null && playerGroup.Up.sqrMagnitude > 0.0001f)
+                direction = playerGroup.Up.normalized;
+
+            float baseAngle = airborne ? 28f : -28f;
+            float stepAngle = attemptIndex % 2 == 0 ? 18f : -18f;
+            return Rotate(direction, baseAngle + stepAngle).normalized;
+        }
+
+        private static Vector2 Rotate(Vector2 vector, float degrees)
+        {
+            float radians = degrees * Mathf.Deg2Rad;
+            float sin = Mathf.Sin(radians);
+            float cos = Mathf.Cos(radians);
+            return new Vector2(vector.x * cos - vector.y * sin, vector.x * sin + vector.y * cos);
+        }
+
+        private static void TrackCreatedGroups(List<SandboxGroup> groups)
+        {
+            for (int index = 0; index < groups.Count; index++)
+            {
+                SandboxGroup group = groups[index];
+                if (group != null && !ActiveReinforcementGroups.Contains(group))
+                    ActiveReinforcementGroups.Add(group);
+            }
+        }
+
+        private static void CleanupActiveGroups()
+        {
+            for (int index = ActiveReinforcementGroups.Count - 1; index >= 0; index--)
+            {
+                SandboxGroup group = ActiveReinforcementGroups[index];
+                if (group == null)
+                    ActiveReinforcementGroups.RemoveAt(index);
+            }
+        }
+
+        private static void DestroyCreatedGroups(List<SandboxGroup> groups, string reason)
+        {
+            for (int index = 0; index < groups.Count; index++)
+                DestroyCreatedGroup(groups[index], reason);
+
+            groups.Clear();
+        }
+
+        private static void DestroyCreatedGroup(SandboxGroup group, string reason)
+        {
+            if (group == null)
+                return;
+
+            try
+            {
+                group.DestroyGroup();
+                Debug.Log("[LongSubmerged10x] Reinforcement group removed after " + reason + ".");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[LongSubmerged10x] Reinforcement group cleanup failed after " + reason + ": " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private static float GetCooldownRemainingSeconds()
+        {
+            return Mathf.Max(0f, nextAllowedReinforcementCallTime - Time.unscaledTime);
+        }
+
+        private static string FailWithoutCooldown(string uiMessage, string logReason)
+        {
+            Debug.LogWarning("[LongSubmerged10x] Reinforcement call failed: " + logReason + ".");
+            return uiMessage;
+        }
+
+        private static string SafeCountryCode(Country country)
+        {
+            if (country == null)
+                return "none";
+
+            return string.IsNullOrEmpty(country.CountryCode) ? "unknown" : country.CountryCode;
+        }
+
+        private static string SafeReason(string reason)
+        {
+            return string.IsNullOrEmpty(reason) ? "unknown" : reason;
         }
     }
 
@@ -322,11 +887,13 @@ namespace LongSubmerged10x
         private Slider speedFactorSlider;
         private Slider torpedoFactorSlider;
         private Slider sonarFactorSlider;
+        private Button callReinforcementsButton;
         private Text batteryFactorValueText;
         private Text oxygenFactorValueText;
         private Text speedFactorValueText;
         private Text torpedoFactorValueText;
         private Text sonarFactorValueText;
+        private Text reinforcementsStatusText;
         private bool visible;
         private bool suppressToggleEvents;
         private float nextBatteryMaintenanceTime;
@@ -334,6 +901,8 @@ namespace LongSubmerged10x
         private bool pendingRuntimeApply;
         private float pendingRuntimeApplyTime;
         private string pendingRuntimeApplyReason;
+        private string reinforcementStatusOverride;
+        private float reinforcementStatusOverrideUntil;
         private bool cursorCaptured;
         private bool previousCursorVisible;
         private CursorLockMode previousCursorLockState;
@@ -385,6 +954,9 @@ namespace LongSubmerged10x
             RunPendingRuntimeApplyTick();
             RunBatteryMaintenanceTick();
             RunMegaSonarMaintenanceTick();
+
+            if (visible)
+                RefreshReinforcementsStatus();
         }
 
         private void RunBatteryMaintenanceTick()
@@ -498,7 +1070,7 @@ namespace LongSubmerged10x
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(28f, -82f);
-            panelRect.sizeDelta = new Vector2(470f, 680f);
+            panelRect.sizeDelta = new Vector2(470f, 730f);
 
             CreateText(panelObject.transform, "Title", "Long Submerged 10x+", 20, FontStyle.Bold, new Vector2(18f, -16f), new Vector2(410f, 30f));
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
@@ -521,10 +1093,16 @@ namespace LongSubmerged10x
             heavyArmorToggle = CreateToggle(panelObject.transform, "Blindage lourd", new Vector2(20f, -462f));
             superStealthToggle = CreateToggle(panelObject.transform, "Super discrétion", new Vector2(20f, -498f));
 
-            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -590f), new Vector2(140f, 38f));
+            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -542f), new Vector2(180f, 38f));
+            callReinforcementsButton.onClick.AddListener(OnCallReinforcementsClicked);
+
+            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -542f), new Vector2(230f, 38f));
+            reinforcementsStatusText.alignment = TextAnchor.MiddleLeft;
+
+            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -638f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
 
-            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -590f), new Vector2(220f, 38f));
+            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -638f), new Vector2(220f, 38f));
             refreshButton.onClick.AddListener(OnRefreshClicked);
         }
 
@@ -556,6 +1134,7 @@ namespace LongSubmerged10x
             if (visible)
             {
                 RefreshControlState();
+                RefreshReinforcementsStatus();
                 CaptureCursor();
             }
             else
@@ -618,6 +1197,44 @@ namespace LongSubmerged10x
             FlushPendingRuntimeApply("unity ui refresh");
             LongSubmergedRuntimeSettings.Save();
             LongSubmergedRuntimeApplier.ApplyAll("unity ui refresh");
+        }
+
+        private void OnCallReinforcementsClicked()
+        {
+            FlushPendingRuntimeApply("unity ui call reinforcements");
+            SetReinforcementsStatusOverride("Appel...", 1f);
+            string status = ReinforcementRuntimeController.CallReinforcements("unity ui call reinforcements");
+            SetReinforcementsStatusOverride(status, 4f);
+            RefreshReinforcementsStatus();
+        }
+
+        private void RefreshReinforcementsStatus()
+        {
+            string availabilityStatus = ReinforcementRuntimeController.GetStatusText();
+            string displayStatus = availabilityStatus;
+
+            if (!string.IsNullOrEmpty(reinforcementStatusOverride) && Time.unscaledTime < reinforcementStatusOverrideUntil)
+                displayStatus = reinforcementStatusOverride;
+            else
+                reinforcementStatusOverride = null;
+
+            SetReinforcementsStatus(displayStatus);
+
+            if (callReinforcementsButton != null)
+                callReinforcementsButton.interactable = availabilityStatus == "Pret";
+        }
+
+        private void SetReinforcementsStatusOverride(string status, float seconds)
+        {
+            reinforcementStatusOverride = string.IsNullOrEmpty(status) ? null : status;
+            reinforcementStatusOverrideUntil = Time.unscaledTime + Mathf.Max(0f, seconds);
+            SetReinforcementsStatus(status);
+        }
+
+        private void SetReinforcementsStatus(string status)
+        {
+            if (reinforcementsStatusText != null)
+                reinforcementsStatusText.text = string.IsNullOrEmpty(status) ? "Pret" : status;
         }
 
         private void RefreshControlState()
@@ -3714,6 +4331,63 @@ namespace LongSubmerged10x
                 LongSubmergedRuntimeApplier.GetResourceFromGui(__instance),
                 "ResourceGUI.UpdateDisplayedValue"
             );
+        }
+    }
+
+    [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "Awake")]
+    internal static class OrangeAlarmPlayerShipInteriorLightingAwakePatch
+    {
+        private static void Postfix(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting __instance)
+        {
+            OrangeAlarmLightingPatcher.ApplyInteriorLighting(
+                __instance,
+                "PlayerShipInteriorLighting.Awake",
+                false
+            );
+        }
+    }
+
+    [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "Start")]
+    internal static class OrangeAlarmPlayerShipInteriorLightingStartPatch
+    {
+        private static void Prefix(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting __instance)
+        {
+            OrangeAlarmLightingPatcher.ApplyInteriorLighting(
+                __instance,
+                "PlayerShipInteriorLighting.Start",
+                false
+            );
+        }
+    }
+
+    [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "ApplyLightControllersPresets")]
+    internal static class OrangeAlarmPlayerShipInteriorLightingApplyPresetsPatch
+    {
+        private static void Prefix(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting __instance)
+        {
+            OrangeAlarmLightingPatcher.ApplyInteriorLighting(
+                __instance,
+                "PlayerShipInteriorLighting.ApplyLightControllersPresets",
+                false
+            );
+        }
+    }
+
+    [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.LightController), "UpdatePresets", new Type[] { typeof(float[]), typeof(float[]) })]
+    internal static class OrangeAlarmLightControllerUpdatePresetsPatch
+    {
+        private static void Prefix(UBOAT.Game.Scene.Effects.LightController __instance)
+        {
+            OrangeAlarmLightingPatcher.ApplyLightController(__instance, "LightController.UpdatePresets");
+        }
+    }
+
+    [HarmonyPatch(typeof(UBOAT.Game.Scene.Effects.FillLight), "UpdatePresets", new Type[] { typeof(float[]) })]
+    internal static class OrangeAlarmFillLightUpdatePresetsPatch
+    {
+        private static void Prefix(UBOAT.Game.Scene.Effects.FillLight __instance)
+        {
+            OrangeAlarmLightingPatcher.ApplyFillLight(__instance, "FillLight.UpdatePresets");
         }
     }
 
