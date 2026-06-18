@@ -76,6 +76,18 @@ For a more beginner-friendly walkthrough, read [`mod-here/install.txt`](mod-here
 
 Press `F10` after loading a save. Press `F10` again or `Escape` to close the menu.
 
+<p align="center">
+  <img src="Images%20GITHUB/f10-menu-blindage-green-light.png" alt="F10 menu with Heavy Armor x3 and green SilentRun interior lighting" width="100%">
+</p>
+
+<p align="center">
+  <img src="Images%20GITHUB/f10-oxygen-battery-settings.png" alt="F10 menu showing infinite battery and 90 day oxygen settings" width="100%">
+</p>
+
+<p align="center">
+  <img src="Images%20GITHUB/f10-battery-setting-closeup.png" alt="F10 Mega Battery setting close-up showing infinite battery" width="70%">
+</p>
+
 | Control | Normal value | Default value | Maximum value |
 | --- | ---: | ---: | ---: |
 | **Battery** | `1` | `100` | `100`, infinite battery hold |
@@ -106,6 +118,14 @@ What is included:
 - Keeps pressure damage and crush depth vanilla, so diving too deep can still be fatal.
 - Keeps explosions scoped to the player ship instead of globally weakening every target in a shared blast.
 - Keeps the mode disabled by default; migration settings v16 / v1.4.16 turns old saved Heavy Armor settings off once, then preserves later F10 choices.
+
+## Interior Lighting
+
+The runtime lighting patch keeps the original UBOAT modes but changes their visual colors: Alarm red renders as amber orange, and SilentRun blue renders as submarine green.
+
+<p align="center">
+  <img src="Images%20GITHUB/silentrun-green-light.png" alt="SilentRun green interior lighting in game" width="100%">
+</p>
 
 ## Mega Torpedoes
 
