@@ -696,12 +696,12 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
             self.assertIn("SuperVitesse : runtime F10 reglable 1-20", report_text)
             self.assertIn("Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3", report_text)
             self.assertIn("Mega Sonar : runtime F10 reglable 1-10, defaut x3", report_text)
-            self.assertIn("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel.", report_text)
+            self.assertIn("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel plus proche, a portee visuelle raisonnable.", report_text)
             self.assertIn("Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3", report_text)
             self.assertIn("pression et profondeur d'ecrasement restent vanilla, avec migration settings v16", report_text)
             self.assertIn("Eclairage interieur : alarme rouge vanilla remplacee par orange ambre et SilentRun bleu remplace par vert", report_text)
             self.assertIn("Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3", report_text)
-            self.assertIn("Bouton Appeler renforts : appelle des U-boats amis pres du joueur; avions/warships seulement si des spawners amis compatibles existent", generated_readme_text)
+            self.assertIn("Bouton Appeler renforts : appelle des U-boats amis pres du joueur (10-16 km, minimum 8 km); avions/warships seulement si des spawners amis compatibles existent", generated_readme_text)
             self.assertIn("Eclairage interieur : rouge Alarm remplace visuellement par orange ambre, bleu SilentRun remplace visuellement par vert", generated_readme_text)
             self.assertIn("La lumiere SilentRun est verte uniquement au rendu", generated_readme_text)
             self.assertNotIn("bleue reste vanilla", generated_readme_text)
@@ -719,6 +719,46 @@ class LongSubmergedGeneratorTests(unittest.TestCase):
 
             entities_wb = load_workbook(out_mod / "Data Sheets" / "Entities.xlsx", data_only=False)
             self.assertNotIn("Types", entities_wb.sheetnames)
+
+    def test_reinforcement_fallback_spawn_distances_are_close_but_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            uboat_root = tmp_path / "UBOAT"
+            data_sheets = uboat_root / "UBOAT_Data" / "Data Sheets"
+            out_mod = tmp_path / "LongSubmerged10x"
+
+            make_general_workbook(data_sheets / "General.xlsx", -0.000009)
+            make_general_workbook(data_sheets / "Realistic Travel" / "General.xlsx", -0.00000133)
+            make_entities_workbook(data_sheets / "Entities.xlsx")
+
+            exit_code = generator.main(
+                [
+                    "--uboat",
+                    str(uboat_root),
+                    "--out",
+                    str(out_mod),
+                    "--force",
+                    "--game-version",
+                    "2026.1 Patch 20",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+
+            runtime_patch_text = (out_mod / "Source" / "LongSubmergedRuntimePatch.cs").read_text(encoding="utf-8")
+            reinforcement_controller_text = extract_csharp_block(runtime_patch_text, "internal static class ReinforcementRuntimeController")
+
+            self.assertIn("private const float FallbackMinimumPlayerDistance = 8f;", reinforcement_controller_text)
+            self.assertIn("private const float FallbackRallyDistance = 6f;", reinforcement_controller_text)
+            self.assertIn("private static readonly float[] FallbackSpawnDistances = new float[] { 10f, 12f, 14f, 16f };", reinforcement_controller_text)
+            self.assertIn("private static readonly float[] FallbackSpawnAngles = new float[] { 110f, -110f, 130f, -130f, 150f, -150f, 90f, -90f };", reinforcement_controller_text)
+            self.assertNotIn("private const float FallbackMinimumPlayerDistance = 15f;", reinforcement_controller_text)
+            self.assertNotIn("new float[] { 18f, 22f, 26f, 16f }", reinforcement_controller_text)
+            self.assertIn("fromPlayer.sqrMagnitude < FallbackMinimumPlayerDistance * FallbackMinimumPlayerDistance", reinforcement_controller_text)
+            self.assertIn("private const float FallbackGroupClearance = 2.5f;", reinforcement_controller_text)
+            self.assertIn("GetGroupsInRange(position, FallbackGroupClearance, false)", reinforcement_controller_text)
+            self.assertIn("IsFallbackSpawnPositionOnNavMesh(worldNavMesh, playerGroup, position)", reinforcement_controller_text)
+            self.assertIn("worldNavMesh.RaycastLandsNavMesh(position, playerGroup.Position, out hit)", reinforcement_controller_text)
 
 
 if __name__ == "__main__":

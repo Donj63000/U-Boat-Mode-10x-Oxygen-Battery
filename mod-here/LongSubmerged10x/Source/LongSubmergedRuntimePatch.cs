@@ -324,9 +324,9 @@ namespace LongSubmerged10x
         private const int RequiredPrimaryAirPatrolCalls = 2;
         private const int RequiredPrimaryWarshipCalls = 2;
         private const int DesiredFallbackUboatCount = 2;
-        private const float FallbackMinimumPlayerDistance = 15f;
+        private const float FallbackMinimumPlayerDistance = 8f;
         private const float FallbackGroupClearance = 2.5f;
-        private const float FallbackRallyDistance = 4f;
+        private const float FallbackRallyDistance = 6f;
         private static readonly string[] FallbackSubmarineTypePriority = new string[]
         {
             "Type VIIC",
@@ -337,8 +337,8 @@ namespace LongSubmerged10x
             "Type IIA"
         };
 
-        private static readonly float[] FallbackSpawnDistances = new float[] { 18f, 22f, 26f, 16f };
-        private static readonly float[] FallbackSpawnAngles = new float[] { 125f, -125f, 145f, -145f, 160f, -160f, 95f, -95f };
+        private static readonly float[] FallbackSpawnDistances = new float[] { 10f, 12f, 14f, 16f };
+        private static readonly float[] FallbackSpawnAngles = new float[] { 110f, -110f, 130f, -130f, 150f, -150f, 90f, -90f };
 
         private static readonly List<SandboxGroup> ActiveReinforcementGroups = new List<SandboxGroup>();
         private static readonly List<float> ActiveReinforcementGroupTrackedAt = new List<float>();

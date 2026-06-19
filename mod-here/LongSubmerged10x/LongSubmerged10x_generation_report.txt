@@ -22,7 +22,7 @@ Changements :
 - Blindage lourd : pression et profondeur d'ecrasement restent vanilla, avec migration settings v16 sur OFF une seule fois.
 - Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.
 - Eclairage interieur : alarme rouge vanilla remplacee par orange ambre et SilentRun bleu remplace par vert, sans changer les modes.
-- Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel.
+- Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel plus proche, a portee visuelle raisonnable.
 - General.xlsx / Settings / Underwater Discipline Loss: Normal: 1e-05 -> 6.666666666666667e-07; Hard: 1e-05 -> 6.666666666666667e-07; Very Hard: 1e-05 -> 6.666666666666667e-07 | Discipline sous l'eau environ 15x moins punitive.
 - General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.
 - General.xlsx / Settings / Fatigue - Max Penalty: Normal: -0.00012 -> -8e-06; Hard: -0.000155 -> -1.0333333333333333e-05; Very Hard: -0.0002 -> -1.3333333333333333e-05 | Pénalité maximale de fatigue réduite proportionnellement.

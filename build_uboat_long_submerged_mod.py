@@ -1751,9 +1751,9 @@ namespace LongSubmerged10x
         private const int RequiredPrimaryAirPatrolCalls = 2;
         private const int RequiredPrimaryWarshipCalls = 2;
         private const int DesiredFallbackUboatCount = 2;
-        private const float FallbackMinimumPlayerDistance = 15f;
+        private const float FallbackMinimumPlayerDistance = 8f;
         private const float FallbackGroupClearance = 2.5f;
-        private const float FallbackRallyDistance = 4f;
+        private const float FallbackRallyDistance = 6f;
         private static readonly string[] FallbackSubmarineTypePriority = new string[]
         {
             "Type VIIC",
@@ -1764,8 +1764,8 @@ namespace LongSubmerged10x
             "Type IIA"
         };
 
-        private static readonly float[] FallbackSpawnDistances = new float[] { 18f, 22f, 26f, 16f };
-        private static readonly float[] FallbackSpawnAngles = new float[] { 125f, -125f, 145f, -145f, 160f, -160f, 95f, -95f };
+        private static readonly float[] FallbackSpawnDistances = new float[] { 10f, 12f, 14f, 16f };
+        private static readonly float[] FallbackSpawnAngles = new float[] { 110f, -110f, 130f, -130f, 150f, -150f, 90f, -90f };
 
         private static readonly List<SandboxGroup> ActiveReinforcementGroups = new List<SandboxGroup>();
         private static readonly List<float> ActiveReinforcementGroupTrackedAt = new List<float>();
@@ -6997,7 +6997,7 @@ namespace LongSubmerged10x
     report.note("Blindage lourd : pression et profondeur d'ecrasement restent vanilla, avec migration settings v16 sur OFF une seule fois.")
     report.note("Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.")
     report.note("Eclairage interieur : alarme rouge vanilla remplacee par orange ambre et SilentRun bleu remplace par vert, sans changer les modes.")
-    report.note("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel.")
+    report.note("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel plus proche, a portee visuelle raisonnable.")
 
 
 def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | None = None) -> None:
@@ -7034,7 +7034,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Defaillance magnetique torpilles : {args.torpedo_magnetic_failure_chance:g}",
         f"- Explosion magnetique prematuree torpilles : {args.torpedo_premature_magnetic_chance:g}",
         "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion et Appeler renforts",
-        "- Bouton Appeler renforts : appelle des U-boats amis pres du joueur; avions/warships seulement si des spawners amis compatibles existent",
+        "- Bouton Appeler renforts : appelle des U-boats amis pres du joueur (10-16 km, minimum 8 km); avions/warships seulement si des spawners amis compatibles existent",
         "- Eclairage interieur : rouge Alarm remplace visuellement par orange ambre, bleu SilentRun remplace visuellement par vert, gameplay inchange",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
