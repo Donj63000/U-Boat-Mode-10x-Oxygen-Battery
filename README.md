@@ -5,7 +5,7 @@
 <h1 align="center">Long Submerged 10x+</h1>
 
 <p align="center">
-  <strong>A UBOAT gameplay mod for long underwater patrols, infinite battery, runtime tuning, SuperSpeed, Mega Torpedoes, Mega Sonar, Heavy Armor, and Super discrétion / Super Stealth.</strong>
+  <strong>A UBOAT gameplay mod for long underwater patrols, infinite battery, runtime tuning, SuperSpeed, Mega Torpedoes, Mega Sonar, DeepDive, Heavy Armor, and Super discrétion / Super Stealth.</strong>
 </p>
 
 <p align="center">
@@ -36,6 +36,8 @@
 | **Mega Torpedoes** | `Torpedoes = 10` | Scales damage, crew damage, blast radius, visual blast radius, and explosion intensity. |
 | **Mega Sonar** | `Sonar = 3` | Scales hydrophone listening range while leaving arcs and surface modifiers alone. |
 | **Heavy Armor x3** | `Heavy Armor = off` | Optional F10 toggle that reduces player submarine damage to about one third while keeping leaks, fires, repairs, pressure, and destruction possible. |
+| **DeepDive** | `Plongée x2 = on` | Optional F10 toggle, enabled by default, that doubles depth commands above 10 m, evaluates crew depth stress on half real depth, targets 600 m operational real depth, and keeps fatal crush at 700 m. |
+| **Interior Lighting** | `Lumières orange/vert = on` | Optional F10 toggle, enabled by default, that renders Alarm as amber orange and SilentRun as submarine green. |
 | **Super discrétion / Super Stealth** | `Super discrétion = off` | When enabled, reduces player submarine noise and detectability to about one third without making it invisible. |
 | **SuperSpeed** | `SuperSpeed = 8` | Boosts the two fastest forward gears for faster travel. |
 | **Runtime Menu** | `F10` | Lets you tune the mod in game without rebuilding the mod files. |
@@ -46,6 +48,11 @@
 <p align="center">
   <img src="Images%20GITHUB/affiche2.png" alt="Long Submerged 10x+ feature overview" width="100%">
 </p>
+
+## Latest Changes
+
+- **DeepDive stress scaling**: when `Plongée x2` is enabled, the crew depth-stress calculation now uses half of the real depth. The submarine can still dive to 600 m operational depth and still crushes at 700 m, but the stress thresholds now match the x2 depth mode instead of triggering too early.
+- **Generated package updated**: `mod-here/LongSubmerged10x` includes the refreshed runtime patch, manifest, report, generated README, and data sheets for the current build.
 
 ## Quick Install
 
@@ -103,7 +110,8 @@ The menu includes:
 - **Default**: restores the shipped profile.
 - **Reapply now**: reapplies the current values immediately in the loaded game.
 - Saved settings through `PlayerPrefs`, so your tuning persists between sessions.
-- **Heavy Armor x3**: optional toggle that reduces incoming player submarine and crew damage by x3. It is off by default, and migration settings v16 / v1.4.16 turns old saved Heavy Armor settings off once during migration. Crush depth remains vanilla and can still be fatal.
+- **Heavy Armor x3**: optional toggle that reduces incoming player submarine and crew damage by x3. It is off by default, and migration settings v16 / v1.4.16 turns old saved Heavy Armor settings off once during migration.
+- **DeepDive**: `Plongée x2` is enabled by default in F10. When enabled it doubles depth commands above 10 m: 20->40, 40->80, 150->300, 300->600. Crew depth stress is evaluated on half real depth, so each depth-stress threshold needs roughly twice the real depth. Disabled returns depth orders, pressure damage, stress thresholds, and crush handling to vanilla.
 - **Super discrétion / Super Stealth**: optional toggle that divides player noise and detectability by x3. Enemy contacts and detection mechanics still exist.
 
 ## Heavy Armor x3
@@ -115,13 +123,13 @@ What is included:
 - Reduces player submarine equipment and hull damage to about one third.
 - Reduces player crew damage when the damage event explicitly targets the player ship.
 - Reduces flaw and fire chances together with player equipment damage.
-- Keeps pressure damage and crush depth vanilla, so diving too deep can still be fatal.
+- Leaves DeepDive crush behavior visible and fatal instead of hiding it behind armor.
 - Keeps explosions scoped to the player ship instead of globally weakening every target in a shared blast.
 - Keeps the mode disabled by default; migration settings v16 / v1.4.16 turns old saved Heavy Armor settings off once, then preserves later F10 choices.
 
 ## Interior Lighting
 
-The runtime lighting patch keeps the original UBOAT modes but changes their visual colors: Alarm red renders as amber orange, and SilentRun blue renders as submarine green.
+The runtime lighting patch is enabled by default through `Lumières orange/vert` in F10. It keeps the original UBOAT modes but changes their visual colors: Alarm red renders as amber orange, and SilentRun blue renders as submarine green. Disabled restores vanilla lighting colors.
 
 <p align="center">
   <img src="Images%20GITHUB/silentrun-green-light.png" alt="SilentRun green interior lighting in game" width="100%">

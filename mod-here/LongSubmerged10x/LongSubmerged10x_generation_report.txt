@@ -19,9 +19,10 @@ Changements :
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee.
 - Mega Sonar : runtime F10 reglable 1-10, defaut x3, applique aux portees hydrophone.
 - Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3.
-- Blindage lourd : pression et profondeur d'ecrasement restent vanilla, avec migration settings v16 sur OFF une seule fois.
+- DeepDive : case F10 activee par defaut, ordres de profondeur x2 au-dessus de 10 m, stress profondeur calcule sur profondeur /2, max operationnel 600 m, crush a 700 m.
+- Blindage lourd : migration settings v16 sur OFF une seule fois ; le blindage ne masque pas le crush DeepDive.
 - Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.
-- Eclairage interieur : alarme rouge vanilla remplacee par orange ambre et SilentRun bleu remplace par vert, sans changer les modes.
+- Eclairage interieur : case F10 Lumieres orange/vert activee par defaut ; decochee restaure les couleurs vanilla.
 - Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel plus proche, a portee visuelle raisonnable.
 - General.xlsx / Settings / Underwater Discipline Loss: Normal: 1e-05 -> 6.666666666666667e-07; Hard: 1e-05 -> 6.666666666666667e-07; Very Hard: 1e-05 -> 6.666666666666667e-07 | Discipline sous l'eau environ 15x moins punitive.
 - General.xlsx / Settings / Fatigue - Per Day: Normal: -2.1e-06 -> -1.3999999999999998e-07; Hard: -2.1e-06 -> -1.3999999999999998e-07; Very Hard: -2.1e-06 -> -1.3999999999999998e-07 | Fatigue longue durée environ 15x plus lente.

@@ -80,6 +80,9 @@ namespace LongSubmerged10x
             typeof(PlayerShipUpdatePatch),
             typeof(ResourceUpdateAmountBatteryPatch),
             typeof(PlayerShipValidateTargetVelocityPatch),
+            typeof(DeepDivePlayerShipTargetDepthSetterPatch),
+            typeof(DeepDiveHullCrushControllerDoUpdatePatch),
+            typeof(DeepDivePlayerShipUpdateStressAndDisciplineGainPatch),
             typeof(PlayerShipSavesManagerOnLoadedPatch),
             typeof(PlayerShipCrewAddedPatch),
             typeof(PlayerShipCrewRemovedPatch),
@@ -166,7 +169,34 @@ namespace LongSubmerged10x
 
         private static readonly HashSet<string> MissingMemberWarnings = new HashSet<string>();
 
+        private static readonly ConditionalWeakTable<object, InteriorLightingObjectPatchData> ObjectColorPatches =
+            new ConditionalWeakTable<object, InteriorLightingObjectPatchData>();
+
         private static bool refreshingInteriorLighting;
+
+        public static bool IsEnabled()
+        {
+            return LongSubmergedRuntimeSettings.InteriorLightingColors;
+        }
+
+        public static void ApplyAll(string reason)
+        {
+            try
+            {
+                foreach (UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting in UnityEngine.Object.FindObjectsOfType<UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting>())
+                    ApplyInteriorLighting(lighting, reason + ".PlayerShipInteriorLighting", true);
+
+                foreach (UBOAT.Game.Scene.Effects.LightController controller in UnityEngine.Object.FindObjectsOfType<UBOAT.Game.Scene.Effects.LightController>())
+                    ApplyLightController(controller, reason + ".LightController");
+
+                foreach (UBOAT.Game.Scene.Effects.FillLight fillLight in UnityEngine.Object.FindObjectsOfType<UBOAT.Game.Scene.Effects.FillLight>())
+                    ApplyFillLight(fillLight, reason + ".FillLight");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
 
         public static void ApplyInteriorLighting(
             UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting,
@@ -179,6 +209,12 @@ namespace LongSubmerged10x
 
             try
             {
+                if (!IsEnabled())
+                {
+                    RestoreInteriorLighting(lighting, reason, refreshPresets);
+                    return;
+                }
+
                 ApplyPrivateInteriorColors(lighting);
                 ApplyLightControllers(lighting, reason);
                 ApplyColorMultiplier(lighting);
@@ -212,11 +248,14 @@ namespace LongSubmerged10x
 
             try
             {
-                if (!ColorsEqual(controller.AlarmColor, AlarmOrangeColor))
-                    controller.AlarmColor = AlarmOrangeColor;
+                if (!IsEnabled())
+                {
+                    RestoreLightController(controller, reason);
+                    return;
+                }
 
-                if (!ColorsEqual(controller.BlueColor, SilentRunGreenColor))
-                    controller.BlueColor = SilentRunGreenColor;
+                SetColorProperty(controller, "AlarmColor", controller.AlarmColor, AlarmOrangeColor);
+                SetColorProperty(controller, "BlueColor", controller.BlueColor, SilentRunGreenColor);
             }
             catch (Exception ex)
             {
@@ -234,11 +273,14 @@ namespace LongSubmerged10x
 
             try
             {
-                if (!ColorsEqual(fillLight.RedColor, AlarmOrangeColor))
-                    fillLight.RedColor = AlarmOrangeColor;
+                if (!IsEnabled())
+                {
+                    RestoreFillLight(fillLight, reason);
+                    return;
+                }
 
-                if (!ColorsEqual(fillLight.BlueColor, SilentRunGreenColor))
-                    fillLight.BlueColor = SilentRunGreenColor;
+                SetColorProperty(fillLight, "RedColor", fillLight.RedColor, AlarmOrangeColor);
+                SetColorProperty(fillLight, "BlueColor", fillLight.BlueColor, SilentRunGreenColor);
             }
             catch (Exception ex)
             {
@@ -285,6 +327,51 @@ namespace LongSubmerged10x
             ApplyColorMultiplierMethod.Invoke(lighting, null);
         }
 
+        private static void RestoreInteriorLighting(
+            UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting,
+            string reason,
+            bool refreshPresets
+        )
+        {
+            RestoreColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor");
+            RestoreColorField(lighting, SilentRunInteriorFogColorField, "silentRunInteriorFogColor");
+            RestoreColorField(lighting, AlarmLightsColorMultiplierField, "alarmLightsColorMultiplier");
+            RestoreColorField(lighting, SilentRunLightsColorMultiplierField, "silentRunLightsColorMultiplier");
+            ApplyLightControllers(lighting, reason);
+            ApplyColorMultiplier(lighting);
+
+            if (refreshPresets && !refreshingInteriorLighting)
+            {
+                refreshingInteriorLighting = true;
+                try
+                {
+                    lighting.ApplyLightControllersPresets();
+                }
+                finally
+                {
+                    refreshingInteriorLighting = false;
+                }
+            }
+        }
+
+        private static void RestoreLightController(
+            UBOAT.Game.Scene.Effects.LightController controller,
+            string reason
+        )
+        {
+            RestoreColorProperty(controller, "AlarmColor", controller.AlarmColor, delegate(Color value) { controller.AlarmColor = value; });
+            RestoreColorProperty(controller, "BlueColor", controller.BlueColor, delegate(Color value) { controller.BlueColor = value; });
+        }
+
+        private static void RestoreFillLight(
+            UBOAT.Game.Scene.Effects.FillLight fillLight,
+            string reason
+        )
+        {
+            RestoreColorProperty(fillLight, "RedColor", fillLight.RedColor, delegate(Color value) { fillLight.RedColor = value; });
+            RestoreColorProperty(fillLight, "BlueColor", fillLight.BlueColor, delegate(Color value) { fillLight.BlueColor = value; });
+        }
+
         private static void SetColorField(object target, FieldInfo field, string memberName, Color value)
         {
             if (field == null)
@@ -297,7 +384,116 @@ namespace LongSubmerged10x
             if (current is Color && ColorsEqual((Color)current, value))
                 return;
 
+            if (current is Color)
+                RememberColorPatch(target, memberName, (Color)current, value);
+
             field.SetValue(target, value);
+        }
+
+        private static void SetColorProperty(object target, string memberName, Color current, Color value)
+        {
+            if (ColorsEqual(current, value))
+                return;
+
+            RememberColorPatch(target, memberName, current, value);
+            if (target is UBOAT.Game.Scene.Effects.LightController)
+            {
+                UBOAT.Game.Scene.Effects.LightController controller =
+                    (UBOAT.Game.Scene.Effects.LightController)target;
+                if (memberName == "AlarmColor")
+                    controller.AlarmColor = value;
+                else if (memberName == "BlueColor")
+                    controller.BlueColor = value;
+            }
+            else if (target is UBOAT.Game.Scene.Effects.FillLight)
+            {
+                UBOAT.Game.Scene.Effects.FillLight fillLight =
+                    (UBOAT.Game.Scene.Effects.FillLight)target;
+                if (memberName == "RedColor")
+                    fillLight.RedColor = value;
+                else if (memberName == "BlueColor")
+                    fillLight.BlueColor = value;
+            }
+        }
+
+        private static void RestoreColorField(object target, FieldInfo field, string memberName)
+        {
+            if (field == null)
+            {
+                WarnMissingMember(memberName);
+                return;
+            }
+
+            object current = field.GetValue(target);
+            if (!(current is Color))
+                return;
+
+            Color original;
+            if (!TryConsumeColorPatch(target, memberName, (Color)current, out original))
+                return;
+
+            field.SetValue(target, original);
+        }
+
+        private static void RestoreColorProperty(
+            object target,
+            string memberName,
+            Color current,
+            Action<Color> setter
+        )
+        {
+            Color original;
+            if (!TryConsumeColorPatch(target, memberName, current, out original))
+                return;
+
+            setter(original);
+        }
+
+        private static void RememberColorPatch(object target, string memberName, Color original, Color patched)
+        {
+            InteriorLightingObjectPatchData data;
+            if (!ObjectColorPatches.TryGetValue(target, out data))
+            {
+                data = new InteriorLightingObjectPatchData();
+                ObjectColorPatches.Add(target, data);
+            }
+
+            InteriorLightingColorPatchValue stored;
+            if (!data.Values.TryGetValue(memberName, out stored))
+            {
+                data.Values.Add(memberName, new InteriorLightingColorPatchValue(original, patched));
+                return;
+            }
+
+            stored.PatchedValue = patched;
+        }
+
+        private static bool TryConsumeColorPatch(
+            object target,
+            string memberName,
+            Color current,
+            out Color original
+        )
+        {
+            original = Color.clear;
+
+            InteriorLightingObjectPatchData data;
+            if (!ObjectColorPatches.TryGetValue(target, out data))
+                return false;
+
+            InteriorLightingColorPatchValue stored;
+            if (!data.Values.TryGetValue(memberName, out stored))
+                return false;
+
+            data.Values.Remove(memberName);
+            if (data.Values.Count == 0)
+                ObjectColorPatches.Remove(target);
+
+            if (!ColorsEqual(current, stored.PatchedValue))
+                return false;
+
+            original = stored.OriginalValue;
+            return true;
         }
 
         private static bool ColorsEqual(Color left, Color right)
@@ -314,6 +510,24 @@ namespace LongSubmerged10x
                 return;
 
             Debug.LogWarning("[LongSubmerged10x] Interior lighting color patch skipped missing member: " + memberName + ".");
+        }
+    }
+
+    internal sealed class InteriorLightingObjectPatchData
+    {
+        public readonly Dictionary<string, InteriorLightingColorPatchValue> Values =
+            new Dictionary<string, InteriorLightingColorPatchValue>();
+    }
+
+    internal sealed class InteriorLightingColorPatchValue
+    {
+        public readonly Color OriginalValue;
+        public Color PatchedValue;
+
+        public InteriorLightingColorPatchValue(Color originalValue, Color patchedValue)
+        {
+            OriginalValue = originalValue;
+            PatchedValue = patchedValue;
         }
     }
 
@@ -1201,7 +1415,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 16;
+        private const int RuntimeSettingsVersion = 18;
 
         public const float MinRuntimeFactor = 1f;
         public const float BatteryMaxFactor = 100f;
@@ -1223,6 +1437,8 @@ namespace LongSubmerged10x
         private const bool DefaultMegaSonar = true;
         private const bool DefaultHeavyArmor = false;
         private const bool DefaultSuperStealth = false;
+        private const bool DefaultDeepDive = true;
+        private const bool DefaultInteriorLightingColors = true;
 
         // DonJ: readable in-game defaults. Mega Batterie now means a fully infinite battery.
         // The battery slider is kept only as a saved legacy value and no longer gates infinity.
@@ -1241,6 +1457,8 @@ namespace LongSubmerged10x
         public static bool MegaSonar = DefaultMegaSonar;
         public static bool HeavyArmor = DefaultHeavyArmor;
         public static bool SuperStealth = DefaultSuperStealth;
+        public static bool DeepDive = DefaultDeepDive;
+        public static bool InteriorLightingColors = DefaultInteriorLightingColors;
         public static float BatteryFactor = DefaultBatteryFactor;
         public static float OxygenFactor = DefaultOxygenFactor;
         public static float SpeedFactor = DefaultSpeedFactor;
@@ -1258,6 +1476,8 @@ namespace LongSubmerged10x
             MegaSonar = ReadBool("MegaSonar", DefaultMegaSonar);
             HeavyArmor = ReadBool("HeavyArmor", DefaultHeavyArmor);
             SuperStealth = ReadBool("SuperStealth", DefaultSuperStealth);
+            DeepDive = ReadBool("DeepDive", DefaultDeepDive);
+            InteriorLightingColors = ReadBool("InteriorLightingColors", DefaultInteriorLightingColors);
 
             BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor, BatteryMaxFactor);
             OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor, OxygenMaxFactor);
@@ -1291,6 +1511,8 @@ namespace LongSubmerged10x
             PlayerPrefs.SetInt(PrefPrefix + "MegaSonar", MegaSonar ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "HeavyArmor", HeavyArmor ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "SuperStealth", SuperStealth ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "DeepDive", DeepDive ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingColors", InteriorLightingColors ? 1 : 0);
             PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", BatteryFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", OxygenFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", SpeedFactor);
@@ -1309,6 +1531,8 @@ namespace LongSubmerged10x
             MegaSonar = DefaultMegaSonar;
             HeavyArmor = DefaultHeavyArmor;
             SuperStealth = DefaultSuperStealth;
+            DeepDive = DefaultDeepDive;
+            InteriorLightingColors = DefaultInteriorLightingColors;
             BatteryFactor = DefaultBatteryFactor;
             OxygenFactor = DefaultOxygenFactor;
             SpeedFactor = DefaultSpeedFactor;
@@ -1385,6 +1609,8 @@ namespace LongSubmerged10x
         private Toggle megaSonarToggle;
         private Toggle heavyArmorToggle;
         private Toggle superStealthToggle;
+        private Toggle deepDiveToggle;
+        private Toggle interiorLightingToggle;
         private Slider batteryFactorSlider;
         private Slider oxygenFactorSlider;
         private Slider speedFactorSlider;
@@ -1573,7 +1799,7 @@ namespace LongSubmerged10x
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(28f, -82f);
-            panelRect.sizeDelta = new Vector2(470f, 730f);
+            panelRect.sizeDelta = new Vector2(470f, 815f);
 
             CreateText(panelObject.transform, "Title", "Long Submerged 10x+", 20, FontStyle.Bold, new Vector2(18f, -16f), new Vector2(410f, 30f));
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
@@ -1596,16 +1822,19 @@ namespace LongSubmerged10x
             heavyArmorToggle = CreateToggle(panelObject.transform, "Blindage lourd x3", new Vector2(20f, -462f));
             superStealthToggle = CreateToggle(panelObject.transform, "Super discrétion", new Vector2(20f, -498f));
 
-            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -542f), new Vector2(180f, 38f));
+            deepDiveToggle = CreateToggle(panelObject.transform, "Plongée x2", new Vector2(20f, -534f));
+            interiorLightingToggle = CreateToggle(panelObject.transform, "Lumières orange/vert", new Vector2(20f, -570f));
+
+            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -614f), new Vector2(180f, 38f));
             callReinforcementsButton.onClick.AddListener(OnCallReinforcementsClicked);
 
-            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -542f), new Vector2(230f, 38f));
+            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -614f), new Vector2(230f, 38f));
             reinforcementsStatusText.alignment = TextAnchor.MiddleLeft;
 
-            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -638f), new Vector2(140f, 38f));
+            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -710f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
 
-            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -638f), new Vector2(220f, 38f));
+            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -710f), new Vector2(220f, 38f));
             refreshButton.onClick.AddListener(OnRefreshClicked);
         }
 
@@ -1679,6 +1908,8 @@ namespace LongSubmerged10x
             LongSubmergedRuntimeSettings.MegaSonar = megaSonarToggle != null && megaSonarToggle.isOn;
             LongSubmergedRuntimeSettings.HeavyArmor = heavyArmorToggle != null && heavyArmorToggle.isOn;
             LongSubmergedRuntimeSettings.SuperStealth = superStealthToggle != null && superStealthToggle.isOn;
+            LongSubmergedRuntimeSettings.DeepDive = deepDiveToggle != null && deepDiveToggle.isOn;
+            LongSubmergedRuntimeSettings.InteriorLightingColors = interiorLightingToggle != null && interiorLightingToggle.isOn;
             LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor);
@@ -1764,6 +1995,12 @@ namespace LongSubmerged10x
 
             if (superStealthToggle != null)
                 superStealthToggle.isOn = LongSubmergedRuntimeSettings.SuperStealth;
+
+            if (deepDiveToggle != null)
+                deepDiveToggle.isOn = LongSubmergedRuntimeSettings.DeepDive;
+
+            if (interiorLightingToggle != null)
+                interiorLightingToggle.isOn = LongSubmergedRuntimeSettings.InteriorLightingColors;
 
             SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor, LongSubmergedRuntimeSettings.OxygenMaxFactor);
@@ -2151,7 +2388,9 @@ namespace LongSubmerged10x
                 // DonJ : passe globale volontairement defensive. Elle resynchronise le menu,
                 // le PlayerShip, les consommateurs batterie et toutes les torpilles visibles.
                 LongSubmergedMenuController.Ensure();
+                InteriorLightingColorPatcher.ApplyAll(reason + ".InteriorLighting");
                 ApplyPlayerShip(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason);
+                DeepDiveRuntimePatcher.ApplyAll(reason + ".DeepDive");
                 ApplyBatteryConsumers(reason);
                 MegaSonarRuntimePatcher.ApplyAll(reason + ".MegaSonar");
 
@@ -2228,6 +2467,7 @@ namespace LongSubmerged10x
             OxygenBreathRecalculator.Recalculate(ship, reason);
             ApplyBatteryResource(ship, reason);
             EngineFastSpeedPatcher.PatchPlayerShip(ship, reason);
+            DeepDiveRuntimePatcher.ApplyPlayerShip(ship, reason);
             SuperStealthRuntimePatcher.ApplyPlayerShip(ship, reason);
         }
 
@@ -4502,6 +4742,1183 @@ namespace LongSubmerged10x
         }
     }
 
+    // DonJ : profondeur x2 sans falsifier le profondimetre reel.
+    // Les ordres de profondeur > 10 m sont transformes en profondeur reelle :
+    // 20->40, 40->80, 150->300, 300->600. Le crush vanilla est neutralise sous 700 m.
+    internal static class DeepDiveRuntimePatcher
+    {
+        public const float DisplayedDepthCommandFactor = 2f;
+        public const float ShallowDepthPassthroughMeters = 10f;
+        public const float MaxDisplayedCommandDepthMeters = 300f;
+        public const float MaxRealCommandDepthMeters = 600f;
+        public const float CrushDepthMeters = 700f;
+
+        private const float MetersPerAtmosphere = 10f;
+        private const float SeaLevelPressureAtmospheres = 1f;
+        private const float Epsilon = 0.01f;
+        private const float FullScanIntervalSeconds = 2f;
+        private const int MaxObjectPatchLogs = 20;
+        private const string HullCrushDepthDeltaModifierName = "LongSubmerged10x DeepDive Crush Depth";
+
+        private static readonly BindingFlags InstanceMemberFlags =
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+        public static readonly Type[] PlayerShipSetTargetDepthParameterTypes =
+            new Type[] { typeof(float), typeof(bool), typeof(bool) };
+
+        private static readonly MethodInfo PlayerShipSetTargetDepthMethod =
+            AccessTools.Method(typeof(PlayerShip), "SetTargetDepth", PlayerShipSetTargetDepthParameterTypes);
+
+        private static readonly MethodInfo PlayerShipUpdateStressAndDisciplineGainMethod =
+            AccessTools.Method(typeof(PlayerShip), "UpdateStressAndDisciplineGain", new Type[] { });
+
+        private static readonly FieldInfo DepthStressModifierField =
+            AccessTools.Field(typeof(PlayerShip), "depthStressModifier");
+
+        private static readonly Dictionary<Type, DepthMemberCache> MemberCache =
+            new Dictionary<Type, DepthMemberCache>();
+
+        private static readonly HashSet<string> MissingTypeWarnings =
+            new HashSet<string>();
+
+        private static readonly HashSet<int> ObjectPatchLogIds =
+            new HashSet<int>();
+
+        private static readonly ConditionalWeakTable<Parameter, ParameterDeltaPatchData> CrushDepthDeltaData =
+            new ConditionalWeakTable<Parameter, ParameterDeltaPatchData>();
+
+        private static readonly ConditionalWeakTable<object, DepthObjectPatchData> DepthObjectPatches =
+            new ConditionalWeakTable<object, DepthObjectPatchData>();
+
+        private static float nextFullScanTime;
+        private static int objectPatchLogCount;
+
+        public static bool IsEnabled()
+        {
+            return LongSubmergedRuntimeSettings.DeepDive;
+        }
+
+        public static void ApplyAll(string reason)
+        {
+            try
+            {
+                ApplyPlayerShip(UnityEngine.Object.FindObjectOfType<PlayerShip>(), reason + ".PlayerShip");
+                ApplyNearbyDepthObjects(reason + ".Objects");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void ApplyPlayerShip(PlayerShip ship, string reason)
+        {
+            if (ship == null)
+                return;
+
+            try
+            {
+                if (!IsEnabled())
+                {
+                    RestoreDepthObject(ship, reason);
+                    return;
+                }
+
+                ApplyDepthObject(ship, reason);
+                ClampPlayerShipTargetDepth(ship, reason);
+
+                if (Time.unscaledTime >= nextFullScanTime)
+                {
+                    nextFullScanTime = Time.unscaledTime + FullScanIntervalSeconds;
+                    ApplyNearbyDepthObjects(reason + ".Scan");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+            }
+        }
+
+        public static void UpdatePlayerShipRuntime(PlayerShip ship, string reason)
+        {
+            ApplyPlayerShip(ship, reason);
+        }
+
+        public static void ApplyDepthObject(object target, string reason)
+        {
+            if (target == null)
+                return;
+
+            try
+            {
+                if (!IsEnabled())
+                {
+                    RestoreDepthObject(target, reason);
+                    return;
+                }
+
+                Type type = target.GetType();
+                DepthMemberCache cache = GetDepthMemberCache(type);
+                int changed = 0;
+
+                for (int index = 0; index < cache.Fields.Length; index++)
+                {
+                    if (TryPatchField(target, cache.Fields[index]))
+                        changed++;
+                }
+
+                for (int index = 0; index < cache.Properties.Length; index++)
+                {
+                    if (TryPatchProperty(target, cache.Properties[index]))
+                        changed++;
+                }
+
+                if (changed > 0)
+                    LogPatchedObjectOnce(target, type, changed, reason);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[LongSubmerged10x] DeepDive reflection skipped for "
+                    + target.GetType().Name
+                    + " after "
+                    + SafeReason(reason)
+                    + ": "
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message
+                );
+            }
+        }
+
+        public static void ScaleTargetDepthCommand(ref float value, string reason)
+        {
+            if (!IsEnabled())
+                return;
+
+            if (!IsFinite(value) || value <= ShallowDepthPassthroughMeters)
+                return;
+
+            float original = value;
+            float scaled = value <= MaxDisplayedCommandDepthMeters + Epsilon
+                ? value * DisplayedDepthCommandFactor
+                : value;
+
+            scaled = Mathf.Clamp(scaled, 0f, MaxRealCommandDepthMeters);
+
+            if (Mathf.Abs(scaled - original) <= Epsilon)
+                return;
+
+            value = scaled;
+            Debug.Log(
+                "[LongSubmerged10x] DeepDive target depth "
+                + original.ToString("0.#")
+                + " m -> "
+                + scaled.ToString("0.#")
+                + " m after "
+                + SafeReason(reason)
+                + "."
+            );
+        }
+
+        public static void ApplyDepthStressModifier(PlayerShip ship, string reason)
+        {
+            if (ship == null || !IsEnabled())
+                return;
+
+            try
+            {
+                if (DepthStressModifierField == null)
+                {
+                    WarnMissingTypeOnce(
+                        "PlayerShip.depthStressModifier",
+                        "champ depthStressModifier introuvable, stress de profondeur vanilla conserve."
+                    );
+                    return;
+                }
+
+                Modifier depthStressModifier = DepthStressModifierField.GetValue(ship) as Modifier;
+                if (depthStressModifier == null)
+                {
+                    WarnMissingTypeOnce(
+                        "PlayerShip.depthStressModifier.Value",
+                        "modificateur stress profondeur introuvable, stress de profondeur vanilla conserve."
+                    );
+                    return;
+                }
+
+                float deckDepth = ship.DeckDepth;
+                float targetDepth = ship.TargetDepth;
+                if (!IsFinite(deckDepth) && !IsFinite(targetDepth))
+                    return;
+
+                if (!IsFinite(deckDepth))
+                    deckDepth = 0f;
+
+                if (!IsFinite(targetDepth))
+                    targetDepth = 0f;
+
+                float realDepth = Mathf.Max(Mathf.Max(0f, deckDepth), Mathf.Max(0f, targetDepth));
+                float vanillaTier = GetDepthStressTier(realDepth);
+                if (vanillaTier <= 0f)
+                    return;
+
+                float effectiveDepth = realDepth / DisplayedDepthCommandFactor;
+                float effectiveTier = GetDepthStressTier(effectiveDepth);
+                float currentValue = depthStressModifier.Value;
+                if (!IsFinite(currentValue))
+                    return;
+
+                float desiredValue = currentValue * (effectiveTier / vanillaTier);
+                if (Math.Abs(currentValue - desiredValue) <= 0.000001f)
+                    return;
+
+                depthStressModifier.Value = desiredValue;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[LongSubmerged10x] DeepDive stress patch skipped after "
+                    + SafeReason(reason)
+                    + ": "
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message
+                );
+            }
+        }
+
+        public static MethodBase FindMethodOnKnownType(string simpleTypeName, string methodName)
+        {
+            Type type = FindKnownType(simpleTypeName);
+            if (type == null)
+                return null;
+
+            MethodBase exactNoArgs = AccessTools.Method(type, methodName, new Type[] { });
+            if (exactNoArgs != null)
+                return exactNoArgs;
+
+            return AccessTools.Method(type, methodName);
+        }
+
+        public static MethodBase FindPlayerShipSetTargetDepthMethod()
+        {
+            return PlayerShipSetTargetDepthMethod;
+        }
+
+        public static MethodBase FindPlayerShipUpdateStressAndDisciplineGainMethod()
+        {
+            return PlayerShipUpdateStressAndDisciplineGainMethod;
+        }
+
+        public static bool ShouldRunHullCrushDoUpdate(object controller, ref float result, string reason)
+        {
+            if (!IsEnabled())
+            {
+                RestoreDepthObject(controller, reason);
+                TryPatchHullCrushControllerData(controller, reason);
+                return true;
+            }
+
+            ApplyDepthObject(controller, reason);
+
+            if (TryPatchHullCrushControllerData(controller, reason))
+                return true;
+
+            float depth = GetPlayerDeckDepthMeters();
+            if (!IsFinite(depth))
+            {
+                WarnMissingTypeOnce(
+                    "PlayerShipDepth",
+                    "profondeur joueur introuvable, HullCrushController vanilla conserve."
+                );
+                return true;
+            }
+
+            // Sous 700 m, on neutralise le crush vanilla. A 700 m et plus, on laisse le jeu executer
+            // son chemin original de destruction pour garder la vraie logique de game over.
+            if (depth < CrushDepthMeters - Epsilon)
+            {
+                result = 1f;
+                return false;
+            }
+
+            return true;
+        }
+
+        public static bool ShouldSkipPressureWaterDamageTick(object controller, string reason)
+        {
+            if (!IsEnabled())
+            {
+                RestoreDepthObject(controller, reason);
+                return false;
+            }
+
+            ApplyDepthObject(controller, reason);
+
+            float depth = GetPlayerDeckDepthMeters();
+            if (!IsFinite(depth))
+                return false;
+
+            // Jusqu'a 600 m reels, la profondeur demandee est consideree comme operationnelle.
+            // Au-dessus, la pression vanilla peut recommencer a infliger des avaries avant le crush a 700 m.
+            return depth < MaxRealCommandDepthMeters - Epsilon;
+        }
+
+        private static void ApplyNearbyDepthObjects(string reason)
+        {
+            foreach (DivingPlanesStation station in UnityEngine.Object.FindObjectsOfType<DivingPlanesStation>())
+                ApplyDepthObject(station, reason + ".DivingPlanesStation");
+
+            foreach (Equipment equipment in UnityEngine.Object.FindObjectsOfType<Equipment>())
+                ApplyDepthObject(equipment, reason + ".Equipment");
+
+            ApplyObjectsByTypeName("HullCrushController", reason + ".HullCrushController");
+            ApplyObjectsByTypeName("ApplyWaterDamageToPlayerShip", reason + ".ApplyWaterDamageToPlayerShip");
+        }
+
+        private static void ApplyObjectsByTypeName(string simpleTypeName, string reason)
+        {
+            Type type = FindKnownType(simpleTypeName);
+            if (type == null)
+            {
+                WarnMissingTypeOnce(
+                    simpleTypeName,
+                    "type " + simpleTypeName + " introuvable, patch profondeur partiel."
+                );
+                return;
+            }
+
+            UnityEngine.Object[] objects = UnityEngine.Object.FindObjectsOfType(type);
+            for (int index = 0; index < objects.Length; index++)
+            {
+                ApplyDepthObject(objects[index], reason);
+
+                if (simpleTypeName == "HullCrushController")
+                    TryPatchHullCrushControllerData(objects[index], reason);
+            }
+        }
+
+        private static bool TryPatchHullCrushControllerData(object controller, string reason)
+        {
+            if (controller == null)
+                return false;
+
+            try
+            {
+                Type controllerType = controller.GetType();
+                MethodInfo parseMethod = AccessTools.Method(controllerType, "ParseNewEntities", new Type[] { });
+                if (parseMethod != null)
+                    parseMethod.Invoke(controller, null);
+
+                FieldInfo dataField = AccessTools.Field(controllerType, "hullCrushData");
+                if (dataField == null)
+                    return false;
+
+                Array data = dataField.GetValue(controller) as Array;
+                if (data == null)
+                    return false;
+
+                int changed = 0;
+                for (int index = 0; index < data.Length; index++)
+                {
+                    object item = data.GetValue(index);
+                    if (item == null)
+                        continue;
+
+                    Type itemType = item.GetType();
+                    FieldInfo entityField = AccessTools.Field(itemType, "Entity");
+                    object entity = entityField == null ? null : entityField.GetValue(item);
+                    if (!(entity is PlayerShip))
+                        continue;
+
+                    FieldInfo crushDepthField = AccessTools.Field(itemType, "CrushDepth");
+                    Parameter crushDepth = crushDepthField == null ? null : crushDepthField.GetValue(item) as Parameter;
+                    if (crushDepth == null)
+                        continue;
+
+                    if (ApplyCrushDepthParameter(crushDepth))
+                        changed++;
+                }
+
+                if (changed > 0)
+                {
+                    if (IsEnabled())
+                    {
+                        Debug.Log(
+                            "[LongSubmerged10x] DeepDive raised player crush depth to "
+                            + CrushDepthMeters.ToString("0.#")
+                            + " m after "
+                            + SafeReason(reason)
+                            + "."
+                        );
+                    }
+                    else
+                    {
+                        Debug.Log(
+                            "[LongSubmerged10x] DeepDive restored player crush depth after "
+                            + SafeReason(reason)
+                            + "."
+                        );
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[LongSubmerged10x] DeepDive hull crush data patch skipped after "
+                    + SafeReason(reason)
+                    + ": "
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message
+                );
+                return false;
+            }
+        }
+
+        private static bool ApplyCrushDepthParameter(Parameter parameter)
+        {
+            if (parameter == null)
+                return false;
+
+            float baseValue = parameter.GetValueExcludingModifier(HullCrushDepthDeltaModifierName);
+            if (!IsFinite(baseValue))
+                return false;
+
+            float target = GetHullCrushDepthTarget();
+            float desiredDelta = IsEnabled()
+                ? (baseValue <= target + Epsilon ? 0f : target - baseValue)
+                : 0f;
+
+            ParameterDeltaPatchData data;
+            if (!CrushDepthDeltaData.TryGetValue(parameter, out data))
+            {
+                if (Math.Abs(desiredDelta) <= 0.0001f)
+                    return false;
+
+                data = new ParameterDeltaPatchData(parameter.AddDeltaModifier(HullCrushDepthDeltaModifierName, false));
+                CrushDepthDeltaData.Add(parameter, data);
+            }
+
+            if (data.DeltaModifier == null)
+                return false;
+
+            if (Math.Abs(data.DeltaModifier.Value - desiredDelta) <= 0.0001f)
+                return false;
+
+            data.DeltaModifier.Value = desiredDelta;
+            return true;
+        }
+
+        private static float GetHullCrushDepthTarget()
+        {
+            return -CrushDepthMeters;
+        }
+
+        private static Type FindKnownType(string simpleTypeName)
+        {
+            if (string.IsNullOrEmpty(simpleTypeName))
+                return null;
+
+            Type type = AccessTools.TypeByName(simpleTypeName);
+            if (type != null)
+                return type;
+
+            string[] namespaces = new string[]
+            {
+                "UBOAT.Game",
+                "UBOAT.Game.Scene",
+                "UBOAT.Game.Scene.Tasks",
+                "UBOAT.Game.Scene.Entities",
+                "UBOAT.Game.Scene.Utilities",
+                "UBOAT.Game.Core"
+            };
+
+            for (int index = 0; index < namespaces.Length; index++)
+            {
+                type = AccessTools.TypeByName(namespaces[index] + "." + simpleTypeName);
+                if (type != null)
+                    return type;
+            }
+
+            return null;
+        }
+
+        private static void ClampPlayerShipTargetDepth(PlayerShip ship, string reason)
+        {
+            try
+            {
+                float targetDepth = ship.TargetDepth;
+                if (!IsFinite(targetDepth) || targetDepth <= MaxRealCommandDepthMeters + Epsilon)
+                    return;
+
+                if (TrySetPlayerShipTargetDepth(ship, MaxRealCommandDepthMeters, reason))
+                {
+                    Debug.Log(
+                        "[LongSubmerged10x] DeepDive target depth clamped from "
+                        + targetDepth.ToString("0.#")
+                        + " m to "
+                        + MaxRealCommandDepthMeters.ToString("0.#")
+                        + " m after "
+                        + SafeReason(reason)
+                        + "."
+                    );
+                }
+            }
+            catch
+            {
+                float targetDepth;
+                if (!TryReadFloatMember(ship, "TargetDepth", out targetDepth))
+                    return;
+
+                if (!IsFinite(targetDepth) || targetDepth <= MaxRealCommandDepthMeters + Epsilon)
+                    return;
+
+                TrySetPlayerShipTargetDepth(ship, MaxRealCommandDepthMeters, reason);
+            }
+        }
+
+        private static bool TrySetPlayerShipTargetDepth(PlayerShip ship, float value, string reason)
+        {
+            if (ship == null)
+                return false;
+
+            try
+            {
+                if (PlayerShipSetTargetDepthMethod != null)
+                {
+                    PlayerShipSetTargetDepthMethod.Invoke(ship, new object[] { value, true, false });
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[LongSubmerged10x] DeepDive SetTargetDepth invoke skipped after "
+                    + SafeReason(reason)
+                    + ": "
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message
+                );
+            }
+
+            if (TryWriteFloatMember(ship, "targetDepth", value))
+                return true;
+
+            if (TryWriteFloatMember(ship, "TargetDepth", value))
+                return true;
+
+            WarnMissingTypeOnce(
+                "PlayerShip.SetTargetDepth",
+                "PlayerShip.SetTargetDepth introuvable, clamp profondeur impossible."
+            );
+            return false;
+        }
+
+        private static float GetPlayerDeckDepthMeters()
+        {
+            return GetPlayerDeckDepthMeters(UnityEngine.Object.FindObjectOfType<PlayerShip>());
+        }
+
+        private static float GetPlayerDeckDepthMeters(PlayerShip ship)
+        {
+            if (ship == null)
+                return float.NaN;
+
+            try
+            {
+                if (IsFinite(ship.DeckDepth))
+                    return Mathf.Max(0f, ship.DeckDepth);
+            }
+            catch
+            {
+                // Fallback reflection ci-dessous.
+            }
+
+            float value;
+            if (TryReadFloatMember(ship, "DeckDepth", out value))
+                return Mathf.Max(0f, value);
+
+            if (TryReadFloatMember(ship, "KeelDepth", out value))
+                return Mathf.Max(0f, value);
+
+            if (TryReadFloatMember(ship, "Depth", out value))
+                return Mathf.Max(0f, value);
+
+            return float.NaN;
+        }
+
+        private static bool TryReadFloatMember(object target, string memberName, out float value)
+        {
+            value = 0f;
+            if (target == null || string.IsNullOrEmpty(memberName))
+                return false;
+
+            Type type = target.GetType();
+
+            FieldInfo field = AccessTools.Field(type, memberName);
+            if (field != null && TryObjectToFloat(field.GetValue(target), out value))
+                return true;
+
+            PropertyInfo property = AccessTools.Property(type, memberName);
+            if (property != null && property.CanRead && property.GetIndexParameters().Length == 0)
+            {
+                try
+                {
+                    return TryObjectToFloat(property.GetValue(target, null), out value);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryWriteFloatMember(object target, string memberName, float value)
+        {
+            if (target == null || string.IsNullOrEmpty(memberName))
+                return false;
+
+            Type type = target.GetType();
+
+            FieldInfo field = AccessTools.Field(type, memberName);
+            if (field != null && !field.IsInitOnly && !field.IsLiteral)
+            {
+                if (field.FieldType == typeof(float))
+                {
+                    field.SetValue(target, value);
+                    return true;
+                }
+
+                if (field.FieldType == typeof(double))
+                {
+                    field.SetValue(target, (double)value);
+                    return true;
+                }
+
+                if (field.FieldType == typeof(int))
+                {
+                    field.SetValue(target, Mathf.RoundToInt(value));
+                    return true;
+                }
+            }
+
+            PropertyInfo property = AccessTools.Property(type, memberName);
+            if (
+                property != null
+                && property.CanWrite
+                && property.GetIndexParameters().Length == 0
+                && property.GetSetMethod(true) != null
+            )
+            {
+                if (property.PropertyType == typeof(float))
+                {
+                    property.SetValue(target, value, null);
+                    return true;
+                }
+
+                if (property.PropertyType == typeof(double))
+                {
+                    property.SetValue(target, (double)value, null);
+                    return true;
+                }
+
+                if (property.PropertyType == typeof(int))
+                {
+                    property.SetValue(target, Mathf.RoundToInt(value), null);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static DepthMemberCache GetDepthMemberCache(Type type)
+        {
+            DepthMemberCache cache;
+            if (MemberCache.TryGetValue(type, out cache))
+                return cache;
+
+            List<FieldInfo> fields = new List<FieldInfo>();
+            List<PropertyInfo> properties = new List<PropertyInfo>();
+
+            FieldInfo[] allFields = type.GetFields(InstanceMemberFlags);
+            for (int index = 0; index < allFields.Length; index++)
+            {
+                FieldInfo field = allFields[index];
+                if (CanPatchNumericType(field.FieldType) && !field.IsInitOnly && !field.IsLiteral && IsDepthLimitMemberName(field.Name))
+                    fields.Add(field);
+            }
+
+            PropertyInfo[] allProperties = type.GetProperties(InstanceMemberFlags);
+            for (int index = 0; index < allProperties.Length; index++)
+            {
+                PropertyInfo property = allProperties[index];
+                if (
+                    CanPatchNumericType(property.PropertyType)
+                    && property.CanRead
+                    && property.CanWrite
+                    && property.GetIndexParameters().Length == 0
+                    && property.GetSetMethod(true) != null
+                    && IsDepthLimitMemberName(property.Name)
+                )
+                {
+                    properties.Add(property);
+                }
+            }
+
+            cache = new DepthMemberCache(fields.ToArray(), properties.ToArray());
+            MemberCache[type] = cache;
+            return cache;
+        }
+
+        private static bool TryPatchField(object target, FieldInfo field)
+        {
+            object rawValue = field.GetValue(target);
+            float current;
+            if (!TryObjectToFloat(rawValue, out current))
+                return false;
+
+            float patched;
+            if (!TryBuildPatchedLimit(field.Name, current, out patched))
+                return false;
+
+            object patchedValue;
+            if (!TryBuildTypedNumericValue(field.FieldType, patched, out patchedValue))
+                return false;
+
+            RememberPatchedMember(target, GetMemberPatchKey(field), rawValue, patchedValue);
+            field.SetValue(target, patchedValue);
+            return true;
+        }
+
+        private static bool TryPatchProperty(object target, PropertyInfo property)
+        {
+            object rawValue = property.GetValue(target, null);
+            float current;
+            if (!TryObjectToFloat(rawValue, out current))
+                return false;
+
+            float patched;
+            if (!TryBuildPatchedLimit(property.Name, current, out patched))
+                return false;
+
+            object patchedValue;
+            if (!TryBuildTypedNumericValue(property.PropertyType, patched, out patchedValue))
+                return false;
+
+            RememberPatchedMember(target, GetMemberPatchKey(property), rawValue, patchedValue);
+            property.SetValue(target, patchedValue, null);
+            return true;
+        }
+
+        private static void RestoreDepthObject(object target, string reason)
+        {
+            if (target == null)
+                return;
+
+            DepthObjectPatchData data;
+            if (!DepthObjectPatches.TryGetValue(target, out data) || data.Values.Count == 0)
+                return;
+
+            try
+            {
+                Type type = target.GetType();
+                DepthMemberCache cache = GetDepthMemberCache(type);
+                int restored = 0;
+
+                for (int index = 0; index < cache.Fields.Length; index++)
+                {
+                    if (TryRestoreField(target, cache.Fields[index], data))
+                        restored++;
+                }
+
+                for (int index = 0; index < cache.Properties.Length; index++)
+                {
+                    if (TryRestoreProperty(target, cache.Properties[index], data))
+                        restored++;
+                }
+
+                if (data.Values.Count == 0)
+                    DepthObjectPatches.Remove(target);
+
+                if (restored > 0)
+                {
+                    Debug.Log(
+                        "[LongSubmerged10x] DeepDive restored "
+                        + restored
+                        + " depth/pressure limits on "
+                        + type.Name
+                        + " after "
+                        + SafeReason(reason)
+                        + "."
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    "[LongSubmerged10x] DeepDive restore skipped for "
+                    + target.GetType().Name
+                    + " after "
+                    + SafeReason(reason)
+                    + ": "
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message
+                );
+            }
+        }
+
+        private static bool TryRestoreField(object target, FieldInfo field, DepthObjectPatchData data)
+        {
+            string key = GetMemberPatchKey(field);
+            DepthOriginalValue originalValue;
+            if (!data.Values.TryGetValue(key, out originalValue))
+                return false;
+
+            object currentValue = field.GetValue(target);
+            if (!ShouldRestoreMemberValue(currentValue, originalValue.PatchedValue))
+            {
+                data.Values.Remove(key);
+                return false;
+            }
+
+            field.SetValue(target, originalValue.OriginalValue);
+            data.Values.Remove(key);
+            return true;
+        }
+
+        private static bool TryRestoreProperty(object target, PropertyInfo property, DepthObjectPatchData data)
+        {
+            string key = GetMemberPatchKey(property);
+            DepthOriginalValue originalValue;
+            if (!data.Values.TryGetValue(key, out originalValue))
+                return false;
+
+            object currentValue = property.GetValue(target, null);
+            if (!ShouldRestoreMemberValue(currentValue, originalValue.PatchedValue))
+            {
+                data.Values.Remove(key);
+                return false;
+            }
+
+            property.SetValue(target, originalValue.OriginalValue, null);
+            data.Values.Remove(key);
+            return true;
+        }
+
+        private static void RememberPatchedMember(object target, string key, object originalValue, object patchedValue)
+        {
+            DepthObjectPatchData data;
+            if (!DepthObjectPatches.TryGetValue(target, out data))
+            {
+                data = new DepthObjectPatchData();
+                DepthObjectPatches.Add(target, data);
+            }
+
+            DepthOriginalValue storedValue;
+            if (!data.Values.TryGetValue(key, out storedValue))
+            {
+                storedValue = new DepthOriginalValue(originalValue, patchedValue);
+                data.Values.Add(key, storedValue);
+                return;
+            }
+
+            storedValue.PatchedValue = patchedValue;
+        }
+
+        private static bool ShouldRestoreMemberValue(object currentValue, object patchedValue)
+        {
+            float current;
+            float patched;
+            if (TryObjectToFloat(currentValue, out current) && TryObjectToFloat(patchedValue, out patched))
+                return Math.Abs(current - patched) <= Epsilon;
+
+            return object.Equals(currentValue, patchedValue);
+        }
+
+        private static string GetMemberPatchKey(MemberInfo member)
+        {
+            return member.MemberType.ToString() + ":" + member.DeclaringType.FullName + ":" + member.Name;
+        }
+
+        private static bool TryBuildTypedNumericValue(Type type, float value, out object typedValue)
+        {
+            typedValue = null;
+
+            if (type == typeof(float))
+            {
+                typedValue = value;
+                return true;
+            }
+
+            if (type == typeof(double))
+            {
+                typedValue = (double)value;
+                return true;
+            }
+
+            if (type == typeof(int))
+            {
+                typedValue = Mathf.RoundToInt(value);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryBuildPatchedLimit(string memberName, float current, out float patched)
+        {
+            patched = current;
+
+            if (!IsFinite(current) || Math.Abs(current) <= Epsilon)
+                return false;
+
+            string name = memberName.ToLowerInvariant();
+            float wanted;
+
+            if (IsPressureMemberName(name) && !name.Contains("depth"))
+            {
+                if (current <= 0f)
+                    return false;
+
+                wanted = DepthMetersToAtmospheres(IsCrushMemberName(name) ? CrushDepthMeters : MaxRealCommandDepthMeters);
+            }
+            else if (IsCrushMemberName(name))
+                wanted = GetSignedDepthLimit(current, CrushDepthMeters);
+            else
+                wanted = GetSignedDepthLimit(current, MaxRealCommandDepthMeters);
+
+            // Never make an existing limit from the game or another mod stricter.
+            if (current < 0f)
+            {
+                if (current <= wanted + Epsilon)
+                    return false;
+            }
+            else if (current >= wanted - Epsilon)
+            {
+                return false;
+            }
+
+            // Avoid changing tiny multipliers/probabilities with ambiguous depth-like names.
+            if (Math.Abs(wanted) > 50f && Math.Abs(current) < 1f)
+                return false;
+
+            patched = wanted;
+            return true;
+        }
+
+        private static float GetSignedDepthLimit(float current, float positiveMeters)
+        {
+            return current < 0f ? -positiveMeters : positiveMeters;
+        }
+
+        private static bool IsDepthLimitMemberName(string memberName)
+        {
+            if (string.IsNullOrEmpty(memberName))
+                return false;
+
+            string name = memberName.ToLowerInvariant();
+
+            bool depthLike =
+                name.Contains("depth")
+                || name.Contains("pressure")
+                || name.Contains("atm");
+
+            if (!depthLike)
+                return false;
+
+            // Protection : on ne touche pas la profondeur courante du bateau.
+            if (
+                name.Contains("current")
+                || name.Contains("actual")
+                || name.Contains("deck")
+                || name.Contains("keel")
+                || name.Contains("real")
+            )
+            {
+                return false;
+            }
+
+            return
+                name.Contains("max")
+                || name.Contains("maximum")
+                || name.Contains("limit")
+                || name.Contains("allowed")
+                || name.Contains("operational")
+                || name.Contains("safe")
+                || name.Contains("danger")
+                || name.Contains("warning")
+                || name.Contains("test")
+                || name.Contains("design")
+                || IsCrushMemberName(name);
+        }
+
+        private static bool IsCrushMemberName(string name)
+        {
+            return name.Contains("crush")
+                || name.Contains("implosion")
+                || name.Contains("collapse")
+                || name.Contains("destroy")
+                || name.Contains("destruct")
+                || name.Contains("breakdepth");
+        }
+
+        private static bool IsPressureMemberName(string name)
+        {
+            return name.Contains("pressure") || name.Contains("atm");
+        }
+
+        private static float DepthMetersToAtmospheres(float depthMeters)
+        {
+            return SeaLevelPressureAtmospheres + Mathf.Max(0f, depthMeters) / MetersPerAtmosphere;
+        }
+
+        private static float GetDepthStressTier(float depthMeters)
+        {
+            if (!IsFinite(depthMeters))
+                return 0f;
+
+            if (depthMeters > 300f)
+                return 6f;
+
+            if (depthMeters > 250f)
+                return 5f;
+
+            if (depthMeters > 200f)
+                return 4f;
+
+            if (depthMeters > 150f)
+                return 3f;
+
+            if (depthMeters > 100f)
+                return 2f;
+
+            if (depthMeters > 25f)
+                return 1f;
+
+            return 0f;
+        }
+
+        private static bool CanPatchNumericType(Type type)
+        {
+            return type == typeof(float) || type == typeof(double) || type == typeof(int);
+        }
+
+        private static bool TryObjectToFloat(object rawValue, out float value)
+        {
+            value = 0f;
+
+            if (rawValue is float)
+            {
+                value = (float)rawValue;
+                return true;
+            }
+
+            if (rawValue is double)
+            {
+                value = (float)(double)rawValue;
+                return true;
+            }
+
+            if (rawValue is int)
+            {
+                value = (int)rawValue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static void LogPatchedObjectOnce(object target, Type type, int changedCount, string reason)
+        {
+            if (objectPatchLogCount >= MaxObjectPatchLogs)
+                return;
+
+            int id = GetObjectId(target);
+            if (ObjectPatchLogIds.Contains(id))
+                return;
+
+            ObjectPatchLogIds.Add(id);
+            objectPatchLogCount++;
+
+            Debug.Log(
+                "[LongSubmerged10x] DeepDive patched "
+                + changedCount
+                + " depth/pressure limits on "
+                + type.Name
+                + " after "
+                + SafeReason(reason)
+                + "."
+            );
+        }
+
+        private static int GetObjectId(object target)
+        {
+            UnityEngine.Object unityObject = target as UnityEngine.Object;
+            if (unityObject != null)
+                return unityObject.GetInstanceID();
+
+            return RuntimeHelpers.GetHashCode(target);
+        }
+
+        private static void WarnMissingTypeOnce(string key, string message)
+        {
+            if (MissingTypeWarnings.Contains(key))
+                return;
+
+            MissingTypeWarnings.Add(key);
+            Debug.LogWarning("[LongSubmerged10x] DeepDive: " + message);
+        }
+
+        private static string SafeReason(string reason)
+        {
+            return string.IsNullOrEmpty(reason) ? "unknown" : reason;
+        }
+    }
+
+    internal sealed class DepthMemberCache
+    {
+        public readonly FieldInfo[] Fields;
+        public readonly PropertyInfo[] Properties;
+
+        public DepthMemberCache(FieldInfo[] fields, PropertyInfo[] properties)
+        {
+            Fields = fields ?? new FieldInfo[0];
+            Properties = properties ?? new PropertyInfo[0];
+        }
+    }
+
+    internal sealed class DepthObjectPatchData
+    {
+        public readonly Dictionary<string, DepthOriginalValue> Values =
+            new Dictionary<string, DepthOriginalValue>();
+    }
+
+    internal sealed class DepthOriginalValue
+    {
+        public readonly object OriginalValue;
+        public object PatchedValue;
+
+        public DepthOriginalValue(object originalValue, object patchedValue)
+        {
+            OriginalValue = originalValue;
+            PatchedValue = patchedValue;
+        }
+    }
+
     internal static class OxygenBreathRecalculator
     {
         private static readonly MethodInfo ValidateOxygenBreathModifierMethod =
@@ -4997,6 +6414,8 @@ namespace LongSubmerged10x
             // On la remet ici pour que le slider F10 et les changements de cran soient visibles immediatement.
             EngineFastSpeedPatcher.UpdatePlayerShipRuntime(__instance, "PlayerShip.Update");
 
+            DeepDiveRuntimePatcher.UpdatePlayerShipRuntime(__instance, "PlayerShip.Update");
+
             SuperStealthRuntimePatcher.ApplyPlayerShip(__instance, "PlayerShip.Update");
         }
     }
@@ -5115,6 +6534,48 @@ namespace LongSubmerged10x
         }
     }
 
+    [HarmonyPatch]
+    internal static class DeepDivePlayerShipTargetDepthSetterPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            return DeepDiveRuntimePatcher.FindPlayerShipSetTargetDepthMethod();
+        }
+
+        private static void Prefix(ref float __0)
+        {
+            DeepDiveRuntimePatcher.ScaleTargetDepthCommand(ref __0, "PlayerShip.SetTargetDepth");
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class DeepDiveHullCrushControllerDoUpdatePatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            return DeepDiveRuntimePatcher.FindMethodOnKnownType("HullCrushController", "DoUpdate");
+        }
+
+        private static bool Prefix(object __instance, ref float __result)
+        {
+            return DeepDiveRuntimePatcher.ShouldRunHullCrushDoUpdate(__instance, ref __result, "HullCrushController.DoUpdate");
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class DeepDivePlayerShipUpdateStressAndDisciplineGainPatch
+    {
+        private static MethodBase TargetMethod()
+        {
+            return DeepDiveRuntimePatcher.FindPlayerShipUpdateStressAndDisciplineGainMethod();
+        }
+
+        private static void Postfix(PlayerShip __instance)
+        {
+            DeepDiveRuntimePatcher.ApplyDepthStressModifier(__instance, "PlayerShip.UpdateStressAndDisciplineGain");
+        }
+    }
+
     [HarmonyPatch(typeof(PlayerShip), "ValidateTargetVelocity")]
     internal static class PlayerShipValidateTargetVelocityPatch
     {
@@ -5196,6 +6657,7 @@ namespace LongSubmerged10x
         private static void Postfix(DivingPlanesStation __instance)
         {
             LongSubmergedRuntimeApplier.ApplyBatteryObject(__instance, "DivingPlanesStation.Awake");
+            DeepDiveRuntimePatcher.ApplyDepthObject(__instance, "DivingPlanesStation.Awake");
         }
     }
 
@@ -5205,6 +6667,7 @@ namespace LongSubmerged10x
         private static void Postfix(DivingPlanesStation __instance)
         {
             LongSubmergedRuntimeApplier.ApplyBatteryObject(__instance, "DivingPlanesStation.UpdateModifiers");
+            DeepDiveRuntimePatcher.ApplyDepthObject(__instance, "DivingPlanesStation.UpdateModifiers");
         }
     }
 
@@ -5507,9 +6970,13 @@ namespace LongSubmerged10x
             return AccessTools.Method(typeof(ApplyWaterDamageToPlayerShip), "DoDamageTick", new Type[] { });
         }
 
-        private static void Prefix(out bool __state)
+        private static bool Prefix(ApplyWaterDamageToPlayerShip __instance, out bool __state)
         {
             __state = HeavyArmorRuntimePatcher.BeginPressureWaterDamageScope();
+            return !DeepDiveRuntimePatcher.ShouldSkipPressureWaterDamageTick(
+                __instance,
+                "ApplyWaterDamageToPlayerShip.DoDamageTick"
+            );
         }
 
         private static void Finalizer(bool __state)
