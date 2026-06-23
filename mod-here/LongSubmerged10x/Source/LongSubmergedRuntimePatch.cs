@@ -80,6 +80,7 @@ namespace LongSubmerged10x
             typeof(PlayerShipUpdatePatch),
             typeof(ResourceUpdateAmountBatteryPatch),
             typeof(PlayerShipValidateTargetVelocityPatch),
+            typeof(PlayerShipValidateOxygenBreathModifierPatch),
             typeof(DeepDivePlayerShipTargetDepthSetterPatch),
             typeof(DeepDiveHullCrushControllerDoUpdatePatch),
             typeof(DeepDivePlayerShipUpdateStressAndDisciplineGainPatch),
@@ -1597,7 +1598,6 @@ namespace LongSubmerged10x
         private const int CanvasSortingOrder = 32000;
         private const float BatteryMaintenanceIntervalSeconds = 0.20f;
         private const float MegaSonarMaintenanceIntervalSeconds = 1.00f;
-        private const float RuntimeApplyDebounceSeconds = 0.12f;
         private static LongSubmergedMenuController instance;
         private static Font cachedFont;
 
@@ -1627,9 +1627,6 @@ namespace LongSubmerged10x
         private bool suppressToggleEvents;
         private float nextBatteryMaintenanceTime;
         private float nextMegaSonarMaintenanceTime;
-        private bool pendingRuntimeApply;
-        private float pendingRuntimeApplyTime;
-        private string pendingRuntimeApplyReason;
         private string reinforcementStatusOverride;
         private float reinforcementStatusOverrideUntil;
         private bool cursorCaptured;
@@ -1665,7 +1662,6 @@ namespace LongSubmerged10x
 
         private void OnDestroy()
         {
-            FlushPendingRuntimeApply("menu destroyed");
             RestoreCursorIfNeeded();
 
             if (instance == this)
@@ -1680,7 +1676,6 @@ namespace LongSubmerged10x
             if (visible && Input.GetKeyDown(KeyCode.Escape))
                 SetVisible(false, "Escape");
 
-            RunPendingRuntimeApplyTick();
             RunBatteryMaintenanceTick();
             RunMegaSonarMaintenanceTick();
 
@@ -1716,35 +1711,14 @@ namespace LongSubmerged10x
             MegaSonarRuntimePatcher.ApplyAll("runtime sonar heartbeat");
         }
 
-        private void RunPendingRuntimeApplyTick()
+        private void SaveAndApplyCurrentControlsNow(string reason)
         {
-            if (!pendingRuntimeApply)
-                return;
-
-            if (Time.unscaledTime < pendingRuntimeApplyTime)
-                return;
-
-            FlushPendingRuntimeApply("unity ui debounced");
-        }
-
-        private void QueueRuntimeApply(string reason)
-        {
-            pendingRuntimeApply = true;
-            pendingRuntimeApplyReason = string.IsNullOrEmpty(reason) ? "unity ui change" : reason;
-            pendingRuntimeApplyTime = Time.unscaledTime + RuntimeApplyDebounceSeconds;
-        }
-
-        private void FlushPendingRuntimeApply(string fallbackReason)
-        {
-            if (!pendingRuntimeApply)
-                return;
-
-            pendingRuntimeApply = false;
-            string reason = string.IsNullOrEmpty(pendingRuntimeApplyReason) ? fallbackReason : pendingRuntimeApplyReason;
-            pendingRuntimeApplyReason = null;
-
+            ReadControlStateIntoSettings();
+            RefreshFactorLabels();
             LongSubmergedRuntimeSettings.Save();
-            LongSubmergedRuntimeApplier.ApplyAll(reason);
+            nextBatteryMaintenanceTime = 0f;
+            nextMegaSonarMaintenanceTime = 0f;
+            LongSubmergedRuntimeApplier.ApplyAll(string.IsNullOrEmpty(reason) ? "unity ui change" : reason);
         }
 
         private void EnsureUi()
@@ -1857,9 +1831,6 @@ namespace LongSubmerged10x
             if (panelObject == null || visible == value)
                 return;
 
-            if (!value)
-                FlushPendingRuntimeApply("menu close");
-
             visible = value;
             panelObject.SetActive(visible);
 
@@ -1882,9 +1853,7 @@ namespace LongSubmerged10x
             if (suppressToggleEvents)
                 return;
 
-            ReadControlStateIntoSettings();
-            RefreshFactorLabels();
-            QueueRuntimeApply("unity ui toggle");
+            SaveAndApplyCurrentControlsNow("unity ui toggle");
         }
 
         private void OnFactorSliderChanged(float ignored)
@@ -1892,15 +1861,12 @@ namespace LongSubmerged10x
             if (suppressToggleEvents)
                 return;
 
-            ReadControlStateIntoSettings();
-            RefreshFactorLabels();
-            QueueRuntimeApply("unity ui slider");
+            SaveAndApplyCurrentControlsNow("unity ui slider");
         }
 
         private void ReadControlStateIntoSettings()
         {
-            // DonJ : un changement UI met a jour l'etat runtime immediatement pour les labels.
-            // Save + ApplyAll sont debounces, sinon chaque pas de slider lance un scan complet de la scene.
+            // UI changes must update the runtime state before every immediate apply.
             LongSubmergedRuntimeSettings.MegaBattery = megaBatteryToggle != null && megaBatteryToggle.isOn;
             LongSubmergedRuntimeSettings.MegaOxygen = megaOxygenToggle != null && megaOxygenToggle.isOn;
             LongSubmergedRuntimeSettings.SuperSpeed = superSpeedToggle != null && superSpeedToggle.isOn;
@@ -1919,23 +1885,22 @@ namespace LongSubmerged10x
 
         private void OnDefaultsClicked()
         {
-            pendingRuntimeApply = false;
             LongSubmergedRuntimeSettings.ResetToDefaults();
             LongSubmergedRuntimeSettings.Save();
             RefreshControlState();
+            nextBatteryMaintenanceTime = 0f;
+            nextMegaSonarMaintenanceTime = 0f;
             LongSubmergedRuntimeApplier.ApplyAll("unity ui defaults");
         }
 
         private void OnRefreshClicked()
         {
-            FlushPendingRuntimeApply("unity ui refresh");
-            LongSubmergedRuntimeSettings.Save();
-            LongSubmergedRuntimeApplier.ApplyAll("unity ui refresh");
+            SaveAndApplyCurrentControlsNow("unity ui refresh");
         }
 
         private void OnCallReinforcementsClicked()
         {
-            FlushPendingRuntimeApply("unity ui call reinforcements");
+            SaveAndApplyCurrentControlsNow("unity ui call reinforcements");
             SetReinforcementsStatusOverride("Appel...", 1f);
             string status = ReinforcementRuntimeController.CallReinforcements("unity ui call reinforcements");
             SetReinforcementsStatusOverride(status, 4f);
@@ -1975,41 +1940,46 @@ namespace LongSubmerged10x
         {
             suppressToggleEvents = true;
 
-            if (megaBatteryToggle != null)
-                megaBatteryToggle.isOn = LongSubmergedRuntimeSettings.MegaBattery;
+            try
+            {
+                if (megaBatteryToggle != null)
+                    megaBatteryToggle.isOn = LongSubmergedRuntimeSettings.MegaBattery;
 
-            if (megaOxygenToggle != null)
-                megaOxygenToggle.isOn = LongSubmergedRuntimeSettings.MegaOxygen;
+                if (megaOxygenToggle != null)
+                    megaOxygenToggle.isOn = LongSubmergedRuntimeSettings.MegaOxygen;
 
-            if (superSpeedToggle != null)
-                superSpeedToggle.isOn = LongSubmergedRuntimeSettings.SuperSpeed;
+                if (superSpeedToggle != null)
+                    superSpeedToggle.isOn = LongSubmergedRuntimeSettings.SuperSpeed;
 
-            if (megaTorpedoesToggle != null)
-                megaTorpedoesToggle.isOn = LongSubmergedRuntimeSettings.MegaTorpedoes;
+                if (megaTorpedoesToggle != null)
+                    megaTorpedoesToggle.isOn = LongSubmergedRuntimeSettings.MegaTorpedoes;
 
-            if (megaSonarToggle != null)
-                megaSonarToggle.isOn = LongSubmergedRuntimeSettings.MegaSonar;
+                if (megaSonarToggle != null)
+                    megaSonarToggle.isOn = LongSubmergedRuntimeSettings.MegaSonar;
 
-            if (heavyArmorToggle != null)
-                heavyArmorToggle.isOn = LongSubmergedRuntimeSettings.HeavyArmor;
+                if (heavyArmorToggle != null)
+                    heavyArmorToggle.isOn = LongSubmergedRuntimeSettings.HeavyArmor;
 
-            if (superStealthToggle != null)
-                superStealthToggle.isOn = LongSubmergedRuntimeSettings.SuperStealth;
+                if (superStealthToggle != null)
+                    superStealthToggle.isOn = LongSubmergedRuntimeSettings.SuperStealth;
 
-            if (deepDiveToggle != null)
-                deepDiveToggle.isOn = LongSubmergedRuntimeSettings.DeepDive;
+                if (deepDiveToggle != null)
+                    deepDiveToggle.isOn = LongSubmergedRuntimeSettings.DeepDive;
 
-            if (interiorLightingToggle != null)
-                interiorLightingToggle.isOn = LongSubmergedRuntimeSettings.InteriorLightingColors;
+                if (interiorLightingToggle != null)
+                    interiorLightingToggle.isOn = LongSubmergedRuntimeSettings.InteriorLightingColors;
 
-            SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor, LongSubmergedRuntimeSettings.BatteryMaxFactor);
-            SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor, LongSubmergedRuntimeSettings.OxygenMaxFactor);
-            SetSliderValue(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedFactor, LongSubmergedRuntimeSettings.SpeedMaxFactor);
-            SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
-            SetSliderValue(sonarFactorSlider, LongSubmergedRuntimeSettings.SonarFactor, LongSubmergedRuntimeSettings.SonarMaxFactor);
-            RefreshFactorLabels();
-
-            suppressToggleEvents = false;
+                SetSliderValue(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryFactor, LongSubmergedRuntimeSettings.BatteryMaxFactor);
+                SetSliderValue(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenFactor, LongSubmergedRuntimeSettings.OxygenMaxFactor);
+                SetSliderValue(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedFactor, LongSubmergedRuntimeSettings.SpeedMaxFactor);
+                SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
+                SetSliderValue(sonarFactorSlider, LongSubmergedRuntimeSettings.SonarFactor, LongSubmergedRuntimeSettings.SonarMaxFactor);
+                RefreshFactorLabels();
+            }
+            finally
+            {
+                suppressToggleEvents = false;
+            }
         }
 
         private void RefreshFactorLabels()
@@ -2172,6 +2142,9 @@ namespace LongSubmerged10x
             rootRect.sizeDelta = new Vector2(330f, 30f);
 
             Toggle toggle = root.AddComponent<Toggle>();
+            Image rowHitImage = root.AddComponent<Image>();
+            rowHitImage.color = new Color(1f, 1f, 1f, 0f);
+            rowHitImage.raycastTarget = true;
 
             GameObject box = CreateUiObject("Box", root.transform);
             Image boxImage = box.AddComponent<Image>();
@@ -2357,6 +2330,9 @@ namespace LongSubmerged10x
 
         private static readonly ConditionalWeakTable<Torpedo, TorpedoGuidancePatchData> TorpedoGuidanceData =
             new ConditionalWeakTable<Torpedo, TorpedoGuidancePatchData>();
+
+        private static readonly ConditionalWeakTable<Modifier, OxygenModifierPatchData> OxygenModifierData =
+            new ConditionalWeakTable<Modifier, OxygenModifierPatchData>();
 
         private static readonly HashSet<int> InfiniteBatteryLoggedShipIds = new HashSet<int>();
 
@@ -2789,21 +2765,49 @@ namespace LongSubmerged10x
                 if (oxygenModifier == null)
                     return;
 
-                float baseValue = oxygenModifier.Value;
-                if (!IsFinite(baseValue))
+                float currentValue = oxygenModifier.Value;
+                if (!IsFinite(currentValue))
                     return;
 
-                float desiredValue = baseValue;
+                OxygenModifierPatchData data;
+                if (!OxygenModifierData.TryGetValue(oxygenModifier, out data))
+                {
+                    data = new OxygenModifierPatchData(currentValue);
+                    OxygenModifierData.Add(oxygenModifier, data);
+                }
 
-                // SurfaceSafe 1.4.7 :
-                // On ne touche qu'au drain negatif de respiration.
-                // Si UBOAT met une valeur nulle ou positive pendant la surface/recharge,
-                // on la laisse vanilla pour ne pas casser la transition surface.
-                if (LongSubmergedRuntimeSettings.MegaOxygen && baseValue < 0f)
-                    desiredValue = baseValue / GetEffectiveOxygenRuntimeFactor();
+                float factor = GetEffectiveOxygenRuntimeFactor();
 
+                // Surface and recharge states use zero or positive values; keep them vanilla.
+                if (!LongSubmergedRuntimeSettings.MegaOxygen || factor <= 1.0001f || currentValue >= 0f)
+                {
+                    if (data.LastAppliedFactor > 1.0001f
+                        && Math.Abs(currentValue - data.LastPatchedValue) <= 0.000001f)
+                    {
+                        oxygenModifier.Value = data.OriginalValue;
+                    }
+                    else
+                    {
+                        data.OriginalValue = currentValue;
+                    }
+
+                    data.LastAppliedFactor = 1f;
+                    data.LastPatchedValue = oxygenModifier.Value;
+                    return;
+                }
+
+                if (data.LastAppliedFactor <= 1.0001f
+                    || Math.Abs(currentValue - data.LastPatchedValue) > 0.000001f)
+                {
+                    data.OriginalValue = currentValue;
+                }
+
+                float desiredValue = data.OriginalValue / factor;
                 if (Math.Abs(oxygenModifier.Value - desiredValue) > 0.000000000001f)
                     oxygenModifier.Value = desiredValue;
+
+                data.LastAppliedFactor = factor;
+                data.LastPatchedValue = desiredValue;
             }
             catch (Exception ex)
             {
@@ -3813,30 +3817,37 @@ namespace LongSubmerged10x
             MegaSonarFloatMemberPatchData memberData;
             if (!objectData.FloatMembers.TryGetValue(memberKey, out memberData))
             {
-                memberData = new MegaSonarFloatMemberPatchData(currentValue, 1f);
+                memberData = new MegaSonarFloatMemberPatchData(currentValue, 1f, currentValue);
                 objectData.FloatMembers.Add(memberKey, memberData);
             }
 
             if (factor <= 1.0001f)
             {
-                float previousExpected = memberData.OriginalValue * memberData.LastAppliedFactor;
-                if (memberData.LastAppliedFactor <= 1.0001f || Math.Abs(currentValue - previousExpected) > GetFloatTolerance(previousExpected))
+                if (memberData.LastAppliedFactor > 1.0001f
+                    && Math.Abs(currentValue - memberData.LastPatchedValue) <= GetFloatTolerance(memberData.LastPatchedValue))
+                {
+                    desiredValue = memberData.OriginalValue;
+                }
+                else
+                {
                     memberData.OriginalValue = currentValue;
+                    desiredValue = currentValue;
+                }
 
                 memberData.LastAppliedFactor = 1f;
-                desiredValue = memberData.OriginalValue;
+                memberData.LastPatchedValue = desiredValue;
                 return IsFinite(desiredValue) && desiredValue > 0f;
             }
 
-            if (Math.Abs(factor - memberData.LastAppliedFactor) <= 0.0001f)
+            if (memberData.LastAppliedFactor <= 1.0001f
+                || Math.Abs(currentValue - memberData.LastPatchedValue) > GetFloatTolerance(memberData.LastPatchedValue))
             {
-                float previousExpected = memberData.OriginalValue * memberData.LastAppliedFactor;
-                if (Math.Abs(currentValue - previousExpected) > GetFloatTolerance(previousExpected))
-                    memberData.OriginalValue = currentValue;
+                memberData.OriginalValue = currentValue;
             }
 
             desiredValue = memberData.OriginalValue * factor;
             memberData.LastAppliedFactor = factor;
+            memberData.LastPatchedValue = desiredValue;
             return IsFinite(desiredValue) && desiredValue > 0f;
         }
 
@@ -4195,11 +4206,13 @@ namespace LongSubmerged10x
     {
         public float OriginalValue;
         public float LastAppliedFactor;
+        public float LastPatchedValue;
 
-        public MegaSonarFloatMemberPatchData(float originalValue, float lastAppliedFactor)
+        public MegaSonarFloatMemberPatchData(float originalValue, float lastAppliedFactor, float lastPatchedValue)
         {
             OriginalValue = originalValue;
             LastAppliedFactor = lastAppliedFactor;
+            LastPatchedValue = lastPatchedValue;
         }
     }
 
@@ -4234,6 +4247,20 @@ namespace LongSubmerged10x
         public ParameterDeltaPatchData(Modifier deltaModifier)
         {
             DeltaModifier = deltaModifier;
+        }
+    }
+
+    internal sealed class OxygenModifierPatchData
+    {
+        public float OriginalValue;
+        public float LastAppliedFactor;
+        public float LastPatchedValue;
+
+        public OxygenModifierPatchData(float originalValue)
+        {
+            OriginalValue = originalValue;
+            LastAppliedFactor = 1f;
+            LastPatchedValue = originalValue;
         }
     }
 
@@ -6582,6 +6609,15 @@ namespace LongSubmerged10x
         private static void Postfix(PlayerShip __instance)
         {
             EngineFastSpeedPatcher.UpdatePlayerShipRuntime(__instance, "PlayerShip.ValidateTargetVelocity");
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerShip), "ValidateOxygenBreathModifier")]
+    internal static class PlayerShipValidateOxygenBreathModifierPatch
+    {
+        private static void Postfix(PlayerShip __instance)
+        {
+            LongSubmergedRuntimeApplier.ApplyOxygenBreathModifier(__instance, "PlayerShip.ValidateOxygenBreathModifier");
         }
     }
 
