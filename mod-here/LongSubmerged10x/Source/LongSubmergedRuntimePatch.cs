@@ -2356,11 +2356,16 @@ namespace LongSubmerged10x
             Image templateImage = template.AddComponent<Image>();
             templateImage.color = new Color(0.06f, 0.07f, 0.08f, 0.98f);
             RectTransform templateRect = template.GetComponent<RectTransform>();
-            templateRect.anchorMin = new Vector2(0f, 0f);
-            templateRect.anchorMax = new Vector2(1f, 0f);
-            templateRect.pivot = new Vector2(0.5f, 1f);
-            templateRect.anchoredPosition = new Vector2(0f, -32f);
+            templateRect.anchorMin = new Vector2(0f, 1f);
+            templateRect.anchorMax = new Vector2(1f, 1f);
+            templateRect.pivot = new Vector2(0.5f, 0f);
+            templateRect.anchoredPosition = new Vector2(0f, 32f);
             templateRect.sizeDelta = new Vector2(0f, 242f);
+
+            Canvas templateCanvas = template.AddComponent<Canvas>();
+            templateCanvas.overrideSorting = true;
+            templateCanvas.sortingOrder = CanvasSortingOrder + 2;
+            template.AddComponent<GraphicRaycaster>();
 
             ScrollRect scrollRect = template.AddComponent<ScrollRect>();
             scrollRect.horizontal = false;
