@@ -1411,7 +1411,7 @@ def write_manifest(mod_dir: Path, args: argparse.Namespace) -> None:
         "Blindage lourd F10 desactive par defaut avec degats joueur divisibles par 3 quand active, "
         "Super discrétion F10 desactivee par defaut avec bruit et detectabilite joueur divisibles par 3, "
         "DeepDive F10 active par defaut : ordres de profondeur x2, stress profondeur calcule sur profondeur /2, jusqu'a 600 m reels et crush a 700 m, "
-        "Lumieres orange/vert F10 activees par defaut avec restauration vanilla quand decochees, "
+        "Couleurs eclairage F10 personnalisables par listes predefinies, defaut Alarm orange ambre et SilentRun vert sous-marin, restauration vanilla quand decochees, "
         "menu runtime F10 debounce pour eviter les freezes de slider, bouton Appeler renforts avec fallback U-boats amis, "
         "AirCompressor et Ventilation vanilla."
     )
@@ -1579,8 +1579,22 @@ namespace LongSubmerged10x
 
     internal static class InteriorLightingColorPatcher
     {
-        private static readonly Color AlarmOrangeColor = new Color(1f, 0.55f, 0.12f, 1f);
-        private static readonly Color SilentRunGreenColor = new Color(0.12f, 0.78f, 0.28f, 1f);
+        private static readonly InteriorLightingColorPreset[] LightingColorPresets =
+            new InteriorLightingColorPreset[]
+            {
+                new InteriorLightingColorPreset("Orange ambre", new Color(1f, 0.55f, 0.12f, 1f)),
+                new InteriorLightingColorPreset("Vert sous-marin", new Color(0.12f, 0.78f, 0.28f, 1f)),
+                new InteriorLightingColorPreset("Rouge", new Color(0.95f, 0.12f, 0.10f, 1f)),
+                new InteriorLightingColorPreset("Jaune", new Color(1f, 0.88f, 0.16f, 1f)),
+                new InteriorLightingColorPreset("Vert", new Color(0.18f, 0.85f, 0.30f, 1f)),
+                new InteriorLightingColorPreset("Bleu", new Color(0.16f, 0.42f, 1f, 1f)),
+                new InteriorLightingColorPreset("Cyan", new Color(0.16f, 0.86f, 1f, 1f)),
+                new InteriorLightingColorPreset("Turquoise", new Color(0.10f, 0.76f, 0.68f, 1f)),
+                new InteriorLightingColorPreset("Violet", new Color(0.58f, 0.30f, 1f, 1f)),
+                new InteriorLightingColorPreset("Rose", new Color(1f, 0.34f, 0.70f, 1f)),
+                new InteriorLightingColorPreset("Blanc chaud", new Color(1f, 0.86f, 0.64f, 1f)),
+                new InteriorLightingColorPreset("Blanc froid", new Color(0.78f, 0.90f, 1f, 1f))
+            };
 
         private static readonly FieldInfo AlarmInteriorFogColorField =
             AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "alarmInteriorFogColor");
@@ -1607,6 +1621,40 @@ namespace LongSubmerged10x
         public static bool IsEnabled()
         {
             return LongSubmergedRuntimeSettings.InteriorLightingColors;
+        }
+
+        public static int LightingColorPresetCount
+        {
+            get { return LightingColorPresets.Length; }
+        }
+
+        public static Color GetLightingColorPresetColor(int presetIndex)
+        {
+            return LightingColorPresets[ClampLightingColorPresetIndex(presetIndex)].Color;
+        }
+
+        public static string GetLightingColorPresetName(int presetIndex)
+        {
+            return LightingColorPresets[ClampLightingColorPresetIndex(presetIndex)].Name;
+        }
+
+        public static List<string> GetLightingColorPresetNames()
+        {
+            List<string> names = new List<string>();
+            for (int index = 0; index < LightingColorPresets.Length; index++)
+                names.Add(LightingColorPresets[index].Name);
+
+            return names;
+        }
+
+        private static Color AlarmColor
+        {
+            get { return LongSubmergedRuntimeSettings.InteriorLightingAlarmColor; }
+        }
+
+        private static Color SilentRunColor
+        {
+            get { return LongSubmergedRuntimeSettings.InteriorLightingSilentRunColor; }
         }
 
         public static void ApplyAll(string reason)
@@ -1684,8 +1732,8 @@ namespace LongSubmerged10x
                     return;
                 }
 
-                SetColorProperty(controller, "AlarmColor", controller.AlarmColor, AlarmOrangeColor);
-                SetColorProperty(controller, "BlueColor", controller.BlueColor, SilentRunGreenColor);
+                SetColorProperty(controller, "AlarmColor", controller.AlarmColor, AlarmColor);
+                SetColorProperty(controller, "BlueColor", controller.BlueColor, SilentRunColor);
             }
             catch (Exception ex)
             {
@@ -1709,8 +1757,8 @@ namespace LongSubmerged10x
                     return;
                 }
 
-                SetColorProperty(fillLight, "RedColor", fillLight.RedColor, AlarmOrangeColor);
-                SetColorProperty(fillLight, "BlueColor", fillLight.BlueColor, SilentRunGreenColor);
+                SetColorProperty(fillLight, "RedColor", fillLight.RedColor, AlarmColor);
+                SetColorProperty(fillLight, "BlueColor", fillLight.BlueColor, SilentRunColor);
             }
             catch (Exception ex)
             {
@@ -1722,8 +1770,8 @@ namespace LongSubmerged10x
             UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting
         )
         {
-            SetColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor", AlarmOrangeColor);
-            SetColorField(lighting, SilentRunInteriorFogColorField, "silentRunInteriorFogColor", SilentRunGreenColor);
+            SetColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor", AlarmColor);
+            SetColorField(lighting, SilentRunInteriorFogColorField, "silentRunInteriorFogColor", SilentRunColor);
             SetColorField(lighting, AlarmLightsColorMultiplierField, "alarmLightsColorMultiplier", Color.white);
             SetColorField(lighting, SilentRunLightsColorMultiplierField, "silentRunLightsColorMultiplier", Color.white);
         }
@@ -1915,12 +1963,12 @@ namespace LongSubmerged10x
             if (!data.Values.TryGetValue(memberName, out stored))
                 return false;
 
+            if (!ColorsEqual(current, stored.PatchedValue))
+                return false;
+
             data.Values.Remove(memberName);
             if (data.Values.Count == 0)
                 ObjectColorPatches.Remove(target);
-
-            if (!ColorsEqual(current, stored.PatchedValue))
-                return false;
 
             original = stored.OriginalValue;
             return true;
@@ -1934,12 +1982,32 @@ namespace LongSubmerged10x
                 && Mathf.Abs(left.a - right.a) < 0.0001f;
         }
 
+        private static int ClampLightingColorPresetIndex(int presetIndex)
+        {
+            if (LightingColorPresets.Length == 0)
+                return 0;
+
+            return Mathf.Clamp(presetIndex, 0, LightingColorPresets.Length - 1);
+        }
+
         private static void WarnMissingMember(string memberName)
         {
             if (!MissingMemberWarnings.Add(memberName))
                 return;
 
             Debug.LogWarning("[LongSubmerged10x] Interior lighting color patch skipped missing member: " + memberName + ".");
+        }
+    }
+
+    internal sealed class InteriorLightingColorPreset
+    {
+        public readonly string Name;
+        public readonly Color Color;
+
+        public InteriorLightingColorPreset(string name, Color color)
+        {
+            Name = string.IsNullOrEmpty(name) ? "Couleur" : name;
+            Color = color;
         }
     }
 
@@ -2845,7 +2913,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 18;
+        private const int RuntimeSettingsVersion = 19;
 
         public const float MinRuntimeFactor = 1f;
         public const float BatteryMaxFactor = 100f;
@@ -2869,6 +2937,8 @@ namespace LongSubmerged10x
         private const bool DefaultSuperStealth = false;
         private const bool DefaultDeepDive = true;
         private const bool DefaultInteriorLightingColors = true;
+        private const int DefaultInteriorLightingAlarmColorPresetIndex = 0;
+        private const int DefaultInteriorLightingSilentRunColorPresetIndex = 1;
 
         // DonJ: readable in-game defaults. Mega Batterie now means a fully infinite battery.
         // The battery slider is kept only as a saved legacy value and no longer gates infinity.
@@ -2889,11 +2959,23 @@ namespace LongSubmerged10x
         public static bool SuperStealth = DefaultSuperStealth;
         public static bool DeepDive = DefaultDeepDive;
         public static bool InteriorLightingColors = DefaultInteriorLightingColors;
+        public static int InteriorLightingAlarmColorPresetIndex = DefaultInteriorLightingAlarmColorPresetIndex;
+        public static int InteriorLightingSilentRunColorPresetIndex = DefaultInteriorLightingSilentRunColorPresetIndex;
         public static float BatteryFactor = DefaultBatteryFactor;
         public static float OxygenFactor = DefaultOxygenFactor;
         public static float SpeedFactor = DefaultSpeedFactor;
         public static float TorpedoFactor = DefaultTorpedoFactor;
         public static float SonarFactor = DefaultSonarFactor;
+
+        public static Color InteriorLightingAlarmColor
+        {
+            get { return InteriorLightingColorPatcher.GetLightingColorPresetColor(InteriorLightingAlarmColorPresetIndex); }
+        }
+
+        public static Color InteriorLightingSilentRunColor
+        {
+            get { return InteriorLightingColorPatcher.GetLightingColorPresetColor(InteriorLightingSilentRunColorPresetIndex); }
+        }
 
         public static void Load()
         {
@@ -2908,6 +2990,14 @@ namespace LongSubmerged10x
             SuperStealth = ReadBool("SuperStealth", DefaultSuperStealth);
             DeepDive = ReadBool("DeepDive", DefaultDeepDive);
             InteriorLightingColors = ReadBool("InteriorLightingColors", DefaultInteriorLightingColors);
+            InteriorLightingAlarmColorPresetIndex = ReadInteriorLightingColorPresetIndex(
+                "InteriorLightingAlarmColorPresetIndex",
+                DefaultInteriorLightingAlarmColorPresetIndex
+            );
+            InteriorLightingSilentRunColorPresetIndex = ReadInteriorLightingColorPresetIndex(
+                "InteriorLightingSilentRunColorPresetIndex",
+                DefaultInteriorLightingSilentRunColorPresetIndex
+            );
 
             BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor, BatteryMaxFactor);
             OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor, OxygenMaxFactor);
@@ -2933,6 +3023,10 @@ namespace LongSubmerged10x
             SpeedFactor = ClampSpeedFactor(SpeedFactor);
             TorpedoFactor = ClampTorpedoFactor(TorpedoFactor);
             SonarFactor = ClampSonarFactor(SonarFactor);
+            InteriorLightingAlarmColorPresetIndex =
+                ClampInteriorLightingColorPresetIndex(InteriorLightingAlarmColorPresetIndex);
+            InteriorLightingSilentRunColorPresetIndex =
+                ClampInteriorLightingColorPresetIndex(InteriorLightingSilentRunColorPresetIndex);
 
             PlayerPrefs.SetInt(PrefPrefix + "MegaBattery", MegaBattery ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaOxygen", MegaOxygen ? 1 : 0);
@@ -2943,6 +3037,8 @@ namespace LongSubmerged10x
             PlayerPrefs.SetInt(PrefPrefix + "SuperStealth", SuperStealth ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "DeepDive", DeepDive ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingColors", InteriorLightingColors ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingAlarmColorPresetIndex", InteriorLightingAlarmColorPresetIndex);
+            PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingSilentRunColorPresetIndex", InteriorLightingSilentRunColorPresetIndex);
             PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", BatteryFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", OxygenFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", SpeedFactor);
@@ -2963,6 +3059,8 @@ namespace LongSubmerged10x
             SuperStealth = DefaultSuperStealth;
             DeepDive = DefaultDeepDive;
             InteriorLightingColors = DefaultInteriorLightingColors;
+            InteriorLightingAlarmColorPresetIndex = DefaultInteriorLightingAlarmColorPresetIndex;
+            InteriorLightingSilentRunColorPresetIndex = DefaultInteriorLightingSilentRunColorPresetIndex;
             BatteryFactor = DefaultBatteryFactor;
             OxygenFactor = DefaultOxygenFactor;
             SpeedFactor = DefaultSpeedFactor;
@@ -3000,6 +3098,15 @@ namespace LongSubmerged10x
             return ClampFactor(value, SonarMaxFactor);
         }
 
+        public static int ClampInteriorLightingColorPresetIndex(int value)
+        {
+            int presetCount = InteriorLightingColorPatcher.LightingColorPresetCount;
+            if (presetCount <= 0)
+                return 0;
+
+            return Mathf.Clamp(value, 0, presetCount - 1);
+        }
+
         public static float ClampFactor(float value, float maxValue)
         {
             if (float.IsNaN(value) || float.IsInfinity(value))
@@ -3016,6 +3123,12 @@ namespace LongSubmerged10x
         private static float ReadFactor(string key, float fallback, float maxValue)
         {
             return ClampFactor(PlayerPrefs.GetFloat(PrefPrefix + key, fallback), maxValue);
+        }
+
+        private static int ReadInteriorLightingColorPresetIndex(string key, int fallback)
+        {
+            int clampedFallback = ClampInteriorLightingColorPresetIndex(fallback);
+            return ClampInteriorLightingColorPresetIndex(PlayerPrefs.GetInt(PrefPrefix + key, clampedFallback));
         }
     }
 
@@ -3045,6 +3158,10 @@ namespace LongSubmerged10x
         private Slider speedFactorSlider;
         private Slider torpedoFactorSlider;
         private Slider sonarFactorSlider;
+        private Dropdown alarmColorDropdown;
+        private Dropdown silentRunColorDropdown;
+        private Image alarmColorSwatch;
+        private Image silentRunColorSwatch;
         private Button callReinforcementsButton;
         private Text batteryFactorValueText;
         private Text oxygenFactorValueText;
@@ -3144,6 +3261,7 @@ namespace LongSubmerged10x
         {
             ReadControlStateIntoSettings();
             RefreshFactorLabels();
+            RefreshColorPresetControls();
             LongSubmergedRuntimeSettings.Save();
             nextBatteryMaintenanceTime = 0f;
             nextMegaSonarMaintenanceTime = 0f;
@@ -3202,7 +3320,7 @@ namespace LongSubmerged10x
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(28f, -82f);
-            panelRect.sizeDelta = new Vector2(470f, 815f);
+            panelRect.sizeDelta = new Vector2(470f, 920f);
 
             CreateText(panelObject.transform, "Title", "Long Submerged 10x+", 20, FontStyle.Bold, new Vector2(18f, -16f), new Vector2(410f, 30f));
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
@@ -3226,18 +3344,20 @@ namespace LongSubmerged10x
             superStealthToggle = CreateToggle(panelObject.transform, "Super discrétion", new Vector2(20f, -498f));
 
             deepDiveToggle = CreateToggle(panelObject.transform, "Plongée x2", new Vector2(20f, -534f));
-            interiorLightingToggle = CreateToggle(panelObject.transform, "Lumières orange/vert", new Vector2(20f, -570f));
+            interiorLightingToggle = CreateToggle(panelObject.transform, "Couleurs eclairage", new Vector2(20f, -570f));
+            alarmColorDropdown = CreateColorDropdown(panelObject.transform, "Alarme", new Vector2(20f, -606f), out alarmColorSwatch);
+            silentRunColorDropdown = CreateColorDropdown(panelObject.transform, "Silencieux", new Vector2(20f, -650f), out silentRunColorSwatch);
 
-            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -614f), new Vector2(180f, 38f));
+            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -704f), new Vector2(180f, 38f));
             callReinforcementsButton.onClick.AddListener(OnCallReinforcementsClicked);
 
-            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -614f), new Vector2(230f, 38f));
+            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -704f), new Vector2(230f, 38f));
             reinforcementsStatusText.alignment = TextAnchor.MiddleLeft;
 
-            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -710f), new Vector2(140f, 38f));
+            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -802f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
 
-            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -710f), new Vector2(220f, 38f));
+            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -802f), new Vector2(220f, 38f));
             refreshButton.onClick.AddListener(OnRefreshClicked);
         }
 
@@ -3293,6 +3413,14 @@ namespace LongSubmerged10x
             SaveAndApplyCurrentControlsNow("unity ui slider");
         }
 
+        private void OnColorDropdownChanged(int ignored)
+        {
+            if (suppressToggleEvents)
+                return;
+
+            SaveAndApplyCurrentControlsNow("unity ui color dropdown");
+        }
+
         private void ReadControlStateIntoSettings()
         {
             // UI changes must update the runtime state before every immediate apply.
@@ -3305,6 +3433,10 @@ namespace LongSubmerged10x
             LongSubmergedRuntimeSettings.SuperStealth = superStealthToggle != null && superStealthToggle.isOn;
             LongSubmergedRuntimeSettings.DeepDive = deepDiveToggle != null && deepDiveToggle.isOn;
             LongSubmergedRuntimeSettings.InteriorLightingColors = interiorLightingToggle != null && interiorLightingToggle.isOn;
+            LongSubmergedRuntimeSettings.InteriorLightingAlarmColorPresetIndex =
+                ReadColorDropdownPresetIndex(alarmColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingAlarmColorPresetIndex);
+            LongSubmergedRuntimeSettings.InteriorLightingSilentRunColorPresetIndex =
+                ReadColorDropdownPresetIndex(silentRunColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingSilentRunColorPresetIndex);
             LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor);
@@ -3404,6 +3536,7 @@ namespace LongSubmerged10x
                 SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
                 SetSliderValue(sonarFactorSlider, LongSubmergedRuntimeSettings.SonarFactor, LongSubmergedRuntimeSettings.SonarMaxFactor);
                 RefreshFactorLabels();
+                RefreshColorPresetControls();
             }
             finally
             {
@@ -3434,6 +3567,14 @@ namespace LongSubmerged10x
             SetFactorLabel(sonarFactorValueText, sonarFactorSlider, LongSubmergedRuntimeSettings.SonarMaxFactor, "x", null);
         }
 
+        private void RefreshColorPresetControls()
+        {
+            SetColorDropdownValue(alarmColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingAlarmColorPresetIndex);
+            SetColorDropdownValue(silentRunColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingSilentRunColorPresetIndex);
+            SetColorSwatch(alarmColorSwatch, LongSubmergedRuntimeSettings.InteriorLightingAlarmColor);
+            SetColorSwatch(silentRunColorSwatch, LongSubmergedRuntimeSettings.InteriorLightingSilentRunColor);
+        }
+
         private static void SetSliderValue(Slider slider, float value, float maxValue)
         {
             if (slider == null)
@@ -3452,6 +3593,14 @@ namespace LongSubmerged10x
                 : LongSubmergedRuntimeSettings.ClampFactor(slider.value, maxValue);
         }
 
+        private static int ReadColorDropdownPresetIndex(Dropdown dropdown, int fallback)
+        {
+            if (dropdown == null)
+                return LongSubmergedRuntimeSettings.ClampInteriorLightingColorPresetIndex(fallback);
+
+            return LongSubmergedRuntimeSettings.ClampInteriorLightingColorPresetIndex(dropdown.value);
+        }
+
         private static void SetFactorLabel(Text text, Slider slider, float maxValue, string prefix, string suffixOverride)
         {
             if (text == null || slider == null)
@@ -3459,6 +3608,22 @@ namespace LongSubmerged10x
 
             float value = LongSubmergedRuntimeSettings.ClampFactor(slider.value, maxValue);
             text.text = suffixOverride == null ? prefix + value.ToString("0") : suffixOverride;
+        }
+
+        private static void SetColorDropdownValue(Dropdown dropdown, int presetIndex)
+        {
+            if (dropdown == null)
+                return;
+
+            int clampedIndex = LongSubmergedRuntimeSettings.ClampInteriorLightingColorPresetIndex(presetIndex);
+            dropdown.SetValueWithoutNotify(clampedIndex);
+            dropdown.RefreshShownValue();
+        }
+
+        private static void SetColorSwatch(Image swatch, Color color)
+        {
+            if (swatch != null)
+                swatch.color = color;
         }
 
         private void CaptureCursor()
@@ -3558,6 +3723,138 @@ namespace LongSubmerged10x
             slider.onValueChanged.AddListener(OnFactorSliderChanged);
 
             return slider;
+        }
+
+        private Dropdown CreateColorDropdown(Transform parent, string label, Vector2 anchoredPosition, out Image swatch)
+        {
+            GameObject root = CreateUiObject(label + " Color Preset", parent);
+            RectTransform rootRect = root.GetComponent<RectTransform>();
+            rootRect.anchorMin = new Vector2(0f, 1f);
+            rootRect.anchorMax = new Vector2(0f, 1f);
+            rootRect.pivot = new Vector2(0f, 1f);
+            rootRect.anchoredPosition = anchoredPosition;
+            rootRect.sizeDelta = new Vector2(420f, 34f);
+
+            Text labelText = CreateText(root.transform, "Label", label, 13, FontStyle.Bold, new Vector2(0f, -2f), new Vector2(92f, 28f));
+            labelText.alignment = TextAnchor.MiddleLeft;
+
+            GameObject swatchObject = CreateUiObject("Swatch", root.transform);
+            swatch = swatchObject.AddComponent<Image>();
+            swatch.color = Color.white;
+            RectTransform swatchRect = swatchObject.GetComponent<RectTransform>();
+            swatchRect.anchorMin = new Vector2(0f, 0.5f);
+            swatchRect.anchorMax = new Vector2(0f, 0.5f);
+            swatchRect.pivot = new Vector2(0f, 0.5f);
+            swatchRect.anchoredPosition = new Vector2(96f, -2f);
+            swatchRect.sizeDelta = new Vector2(24f, 24f);
+
+            GameObject dropdownObject = CreateUiObject("Dropdown", root.transform);
+            Image dropdownImage = dropdownObject.AddComponent<Image>();
+            dropdownImage.color = new Color(0.12f, 0.13f, 0.15f, 1f);
+            RectTransform dropdownRect = dropdownObject.GetComponent<RectTransform>();
+            dropdownRect.anchorMin = new Vector2(0f, 0.5f);
+            dropdownRect.anchorMax = new Vector2(0f, 0.5f);
+            dropdownRect.pivot = new Vector2(0f, 0.5f);
+            dropdownRect.anchoredPosition = new Vector2(130f, -2f);
+            dropdownRect.sizeDelta = new Vector2(260f, 30f);
+
+            Dropdown dropdown = dropdownObject.AddComponent<Dropdown>();
+            dropdown.targetGraphic = dropdownImage;
+
+            Text captionText = CreateText(dropdownObject.transform, "Caption", "", 13, FontStyle.Normal, new Vector2(10f, -1f), new Vector2(214f, 28f));
+            captionText.alignment = TextAnchor.MiddleLeft;
+            dropdown.captionText = captionText;
+
+            Text arrowText = CreateText(dropdownObject.transform, "Arrow", "v", 14, FontStyle.Bold, new Vector2(232f, -1f), new Vector2(22f, 28f));
+            arrowText.alignment = TextAnchor.MiddleCenter;
+
+            Text itemText;
+            dropdown.template = CreateDropdownTemplate(dropdownObject.transform, out itemText);
+            dropdown.itemText = itemText;
+            dropdown.ClearOptions();
+            dropdown.AddOptions(InteriorLightingColorPatcher.GetLightingColorPresetNames());
+            dropdown.onValueChanged.AddListener(OnColorDropdownChanged);
+            dropdown.RefreshShownValue();
+
+            return dropdown;
+        }
+
+        private RectTransform CreateDropdownTemplate(Transform parent, out Text itemText)
+        {
+            GameObject template = CreateUiObject("Template", parent);
+            Image templateImage = template.AddComponent<Image>();
+            templateImage.color = new Color(0.06f, 0.07f, 0.08f, 0.98f);
+            RectTransform templateRect = template.GetComponent<RectTransform>();
+            templateRect.anchorMin = new Vector2(0f, 0f);
+            templateRect.anchorMax = new Vector2(1f, 0f);
+            templateRect.pivot = new Vector2(0.5f, 1f);
+            templateRect.anchoredPosition = new Vector2(0f, -32f);
+            templateRect.sizeDelta = new Vector2(0f, 242f);
+
+            ScrollRect scrollRect = template.AddComponent<ScrollRect>();
+            scrollRect.horizontal = false;
+            scrollRect.vertical = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+
+            GameObject viewport = CreateUiObject("Viewport", template.transform);
+            Image viewportImage = viewport.AddComponent<Image>();
+            viewportImage.color = new Color(1f, 1f, 1f, 0.02f);
+            Mask viewportMask = viewport.AddComponent<Mask>();
+            viewportMask.showMaskGraphic = false;
+            RectTransform viewportRect = viewport.GetComponent<RectTransform>();
+            viewportRect.anchorMin = Vector2.zero;
+            viewportRect.anchorMax = Vector2.one;
+            viewportRect.offsetMin = new Vector2(4f, 4f);
+            viewportRect.offsetMax = new Vector2(-4f, -4f);
+
+            GameObject content = CreateUiObject("Content", viewport.transform);
+            RectTransform contentRect = content.GetComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0f, 1f);
+            contentRect.anchorMax = new Vector2(1f, 1f);
+            contentRect.pivot = new Vector2(0.5f, 1f);
+            contentRect.anchoredPosition = Vector2.zero;
+            contentRect.sizeDelta = new Vector2(0f, InteriorLightingColorPatcher.LightingColorPresetCount * 26f);
+
+            VerticalLayoutGroup layout = content.AddComponent<VerticalLayoutGroup>();
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlHeight = false;
+            layout.childControlWidth = true;
+            layout.childForceExpandHeight = false;
+            layout.childForceExpandWidth = true;
+
+            ContentSizeFitter fitter = content.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            GameObject item = CreateUiObject("Item", content.transform);
+            RectTransform itemRect = item.GetComponent<RectTransform>();
+            itemRect.anchorMin = new Vector2(0f, 1f);
+            itemRect.anchorMax = new Vector2(1f, 1f);
+            itemRect.pivot = new Vector2(0.5f, 1f);
+            itemRect.sizeDelta = new Vector2(0f, 26f);
+
+            Toggle itemToggle = item.AddComponent<Toggle>();
+            Image itemBackground = item.AddComponent<Image>();
+            itemBackground.color = new Color(0.10f, 0.11f, 0.13f, 1f);
+            itemToggle.targetGraphic = itemBackground;
+
+            GameObject checkmark = CreateUiObject("Item Checkmark", item.transform);
+            Image checkmarkImage = checkmark.AddComponent<Image>();
+            checkmarkImage.color = new Color(0.18f, 0.85f, 0.52f, 1f);
+            RectTransform checkmarkRect = checkmark.GetComponent<RectTransform>();
+            checkmarkRect.anchorMin = new Vector2(0f, 0.5f);
+            checkmarkRect.anchorMax = new Vector2(0f, 0.5f);
+            checkmarkRect.pivot = new Vector2(0f, 0.5f);
+            checkmarkRect.anchoredPosition = new Vector2(8f, 0f);
+            checkmarkRect.sizeDelta = new Vector2(10f, 10f);
+            itemToggle.graphic = checkmarkImage;
+
+            itemText = CreateText(item.transform, "Item Label", "Option", 13, FontStyle.Normal, new Vector2(26f, 0f), new Vector2(210f, 26f));
+            itemText.alignment = TextAnchor.MiddleLeft;
+
+            scrollRect.viewport = viewportRect;
+            scrollRect.content = contentRect;
+            template.SetActive(false);
+            return templateRect;
         }
 
         private Toggle CreateToggle(Transform parent, string label, Vector2 anchoredPosition)
@@ -8502,7 +8799,7 @@ namespace LongSubmerged10x
     report.note("DeepDive : case F10 activee par defaut, ordres de profondeur x2 au-dessus de 10 m, stress profondeur calcule sur profondeur /2, max operationnel 600 m, crush a 700 m.")
     report.note("Blindage lourd : migration settings v16 sur OFF une seule fois ; le blindage ne masque pas le crush DeepDive.")
     report.note("Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3 sans rendre le sous-marin invisible.")
-    report.note("Eclairage interieur : case F10 Lumieres orange/vert activee par defaut ; decochee restaure les couleurs vanilla.")
+    report.note("Eclairage interieur : case F10 Couleurs eclairage activee par defaut ; menus Alarm/SilentRun avec palette predefinie, defaut orange ambre/vert sous-marin, decochee restaure les couleurs vanilla.")
     report.note("Appeler renforts : bouton F10 tente les patrouilles vanilla amies si disponibles, puis cree des U-boats amis en fallback manuel plus proche, a portee visuelle raisonnable.")
 
 
@@ -8521,14 +8818,15 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}",
         f"- Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}",
         f"- Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h",
-        "- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Plongée x2, Lumières orange/vert, Appeler renforts",
+        "- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Plongée x2, Couleurs eclairage avec choix Alarm/SilentRun, Appeler renforts",
         "- Slider Batterie : valeur legacy conservee, l'infini depend seulement de la case Mega Batterie",
         "- Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours",
         f"- Slider SuperVitesse : 1 = vanilla, {args.fast_speed_factor:g} = defaut actuel, 20 = maximum",
         f"- Slider Torpilles : 1 = vanilla, {args.torpedo_damage_factor:g} = maximum",
         "- Slider Sonar : 1 = vanilla, 3 = defaut actuel, 10 = maximum",
         "- Toggle Plongée x2 : actif par defaut, decoche = profondeur vanilla",
-        "- Toggle Lumières orange/vert : actif par defaut, decoche = couleurs vanilla",
+        "- Toggle Couleurs eclairage : actif par defaut, decoche = couleurs vanilla",
+        "- Couleurs eclairage : deux listes F10 predefinies pour Alarm et SilentRun, defaut orange ambre / vert sous-marin",
         "- Blindage lourd : case desactivee par defaut, activable dans F10, degats joueur divises par 3 quand activee",
         "- Super discrétion : case desactivee par defaut, bruit et detectabilite joueur divises par 3 quand activee",
         "- DeepDive : case F10 Plongée x2 activee par defaut, ordres de profondeur > 10 m doubles (20->40, 40->80, 150->300, 300->600), stress profondeur calcule sur profondeur /2, max operationnel 600 m, crush 700 m",
@@ -8542,11 +8840,11 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         f"- DudChance torpilles : {args.torpedo_dud_chance:g}",
         f"- Defaillance magnetique torpilles : {args.torpedo_magnetic_failure_chance:g}",
         f"- Explosion magnetique prematuree torpilles : {args.torpedo_premature_magnetic_chance:g}",
-        "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion, Plongée x2, Lumières orange/vert et Appeler renforts",
+        "- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion, Plongée x2, Couleurs eclairage et Appeler renforts",
         "- Bouton Appeler renforts : appelle des U-boats amis pres du joueur (10-16 km, minimum 8 km); avions/warships seulement si des spawners amis compatibles existent",
         "- Plongée x2 : case F10 active par defaut, decochee pour revenir au mode profondeur vanilla.",
-        "- Lumières orange/vert : case F10 active par defaut, decochee pour restaurer les couleurs vanilla.",
-        "- Eclairage interieur : rouge Alarm remplace visuellement par orange ambre, bleu SilentRun remplace visuellement par vert, gameplay inchange quand la case est activee",
+        "- Couleurs eclairage : case F10 active par defaut, decochee pour restaurer les couleurs vanilla.",
+        "- Eclairage interieur : deux listes F10 changent visuellement Alarm et SilentRun ; defaut Alarm orange ambre, SilentRun vert sous-marin, gameplay inchange quand la case est activee",
         "- DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe",
         f"- Ventilation vanilla : {'non' if args.patch_ventilation else 'oui'}",
         f"- Patch runtime : {MOD_ASSEMBLY_NAME}, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme",
@@ -8559,8 +8857,8 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
         "",
         "Notes :",
         "- La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.",
-        "- La lumiere d'alarme est orange ambre uniquement au rendu quand Lumières orange/vert est cochee ; le mode Alarm et ses effets restent vanilla.",
-        "- La lumiere SilentRun est verte uniquement au rendu quand Lumières orange/vert est cochee ; le mode SilentRun et ses effets restent vanilla.",
+        "- La lumiere d'alarme utilise la couleur Alarm choisie uniquement au rendu quand Couleurs eclairage est cochee ; le mode Alarm et ses effets restent vanilla.",
+        "- La lumiere SilentRun utilise la couleur SilentRun choisie uniquement au rendu quand Couleurs eclairage est cochee ; le mode SilentRun et ses effets restent vanilla.",
         "- La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.",
         "- Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.",
         "- Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.",
@@ -8594,7 +8892,7 @@ def write_readme(mod_dir: Path, args: argparse.Namespace, report: PatchReport | 
                 f"- Lignes EnergyUsage consommation : {report.counters.get('energy_usage_rows', 0)}",
                 f"- Lignes EnergyUsage recharge : {report.counters.get('energy_recharge_rows', 0)}",
                 "- Mega Batterie : case F10 active = batterie infinie, pompe incluse",
-                "- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3, Plongée x2, Lumières orange/vert, Appeler renforts et bouton Par defaut",
+                "- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3, Plongée x2, Couleurs eclairage avec choix Alarm/SilentRun, Appeler renforts et bouton Par defaut",
                 "- SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant",
                 f"- Lignes vitesse sous-marin joueur : {report.counters.get('player_submarine_speed_rows', 0)}",
                 "- Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee",
@@ -9066,11 +9364,11 @@ def main(argv: list[str]) -> int:
     print(f"  - Deux derniers crans avant : vitesse/propulsion x{args.fast_speed_factor:g}")
     print(f"  - Deux derniers crans avant : carburant x{args.fast_speed_fuel_factor:g}")
     print(f"  - Vitesse max sous-marin joueur : {args.player_submarine_max_speed:g} km/h")
-    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Plongée x2, Lumières orange/vert, Appeler renforts")
+    print("  - Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Plongée x2, Couleurs eclairage Alarm/SilentRun, Appeler renforts")
     print("  - Blindage lourd : desactive par defaut, activable dans F10, degats joueur divises par 3")
     print("  - Super discrétion : desactivee par defaut, bruit et detectabilite joueur divisibles par 3")
     print("  - Plongée x2 : activee par defaut, stress profondeur /2, decochee = profondeur vanilla")
-    print("  - Lumières orange/vert : activees par defaut, decochees = couleurs vanilla")
+    print("  - Couleurs eclairage : actives par defaut, listes Alarm/SilentRun, decochees = couleurs vanilla")
     print(f"  - Mega torpilles : {'OUI' if args.mega_torpedoes else 'NON'}")
     print(f"  - Torpilles degats : x{args.torpedo_damage_factor:g}")
     print(f"  - Torpilles effets visuels rayon explosion : x{args.torpedo_explosion_radius_factor:g}")
@@ -9092,7 +9390,7 @@ def main(argv: list[str]) -> int:
     print("  - Blindage lourd : case F10 desactivee par defaut, activable manuellement, degats joueur divises par 3")
     print("  - Super discrétion : case F10 desactivee par defaut, bruit et detectabilite joueur divisibles par 3")
     print("  - Plongée x2 : case F10 activee par defaut, stress profondeur /2, decochee = profondeur vanilla")
-    print("  - Lumières orange/vert : case F10 activee par defaut, decochee = couleurs vanilla")
+    print("  - Couleurs eclairage : case F10 activee par defaut, choix Alarm/SilentRun, decochee = couleurs vanilla")
     print("  - Fiabilite torpilles : runtime F10")
 
     print("\nFichiers générés :")

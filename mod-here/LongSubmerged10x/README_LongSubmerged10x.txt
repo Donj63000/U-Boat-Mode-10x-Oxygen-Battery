@@ -11,14 +11,15 @@ Paramètres utilisés :
 - Deux derniers crans avant : vitesse/propulsion x8
 - Deux derniers crans avant : carburant x8
 - Vitesse max sous-marin joueur : 45 km/h
-- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Plongée x2, Lumières orange/vert, Appeler renforts
+- Menu F10 : Batterie 1-100, Oxygene 1-100, SuperVitesse 1-20, Torpilles 1-10, Sonar 1-10, Blindage lourd x3, Super discrétion x3, Plongée x2, Couleurs eclairage avec choix Alarm/SilentRun, Appeler renforts
 - Slider Batterie : valeur legacy conservee, l'infini depend seulement de la case Mega Batterie
 - Slider Oxygene : 1 = vanilla, 100 = profil environ 90 jours
 - Slider SuperVitesse : 1 = vanilla, 8 = defaut actuel, 20 = maximum
 - Slider Torpilles : 1 = vanilla, 10 = maximum
 - Slider Sonar : 1 = vanilla, 3 = defaut actuel, 10 = maximum
 - Toggle Plongée x2 : actif par defaut, decoche = profondeur vanilla
-- Toggle Lumières orange/vert : actif par defaut, decoche = couleurs vanilla
+- Toggle Couleurs eclairage : actif par defaut, decoche = couleurs vanilla
+- Couleurs eclairage : deux listes F10 predefinies pour Alarm et SilentRun, defaut orange ambre / vert sous-marin
 - Blindage lourd : case desactivee par defaut, activable dans F10, degats joueur divises par 3 quand activee
 - Super discrétion : case desactivee par defaut, bruit et detectabilite joueur divises par 3 quand activee
 - DeepDive : case F10 Plongée x2 activee par defaut, ordres de profondeur > 10 m doubles (20->40, 40->80, 150->300, 300->600), stress profondeur calcule sur profondeur /2, max operationnel 600 m, crush 700 m
@@ -32,11 +33,11 @@ Paramètres utilisés :
 - DudChance torpilles : 0
 - Defaillance magnetique torpilles : 0
 - Explosion magnetique prematuree torpilles : 0
-- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion, Plongée x2, Lumières orange/vert et Appeler renforts
+- Menu en jeu : F10 pour activer/desactiver Mega Batterie, Mega Oxygene, SuperVitesse, Mega Torpilles, Mega Sonar, Blindage lourd, Super discrétion, Plongée x2, Couleurs eclairage et Appeler renforts
 - Bouton Appeler renforts : appelle des U-boats amis pres du joueur (10-16 km, minimum 8 km); avions/warships seulement si des spawners amis compatibles existent
 - Plongée x2 : case F10 active par defaut, decochee pour revenir au mode profondeur vanilla.
-- Lumières orange/vert : case F10 active par defaut, decochee pour restaurer les couleurs vanilla.
-- Eclairage interieur : rouge Alarm remplace visuellement par orange ambre, bleu SilentRun remplace visuellement par vert, gameplay inchange quand la case est activee
+- Couleurs eclairage : case F10 active par defaut, decochee pour restaurer les couleurs vanilla.
+- Eclairage interieur : deux listes F10 changent visuellement Alarm et SilentRun ; defaut Alarm orange ambre, SilentRun vert sous-marin, gameplay inchange quand la case est activee
 - DLC Type IX officiel : lignes joueur Type IXA/IXC/IXC40 incluses si le DLC est installe
 - Ventilation vanilla : oui
 - Patch runtime : LongSubmerged10xPatch_1_4_16, air apres chargement, plafond vitesse, carburant rapide, torpilles, sonar, blindage lourd, super discretion, renforts, menu et stabilite surface/alarme
@@ -49,8 +50,8 @@ Installation :
 
 Notes :
 - La jauge du jeu est une qualité d'air/atmosphère, pas un vrai compteur O2 détaillé.
-- La lumiere d'alarme est orange ambre uniquement au rendu quand Lumières orange/vert est cochee ; le mode Alarm et ses effets restent vanilla.
-- La lumiere SilentRun est verte uniquement au rendu quand Lumières orange/vert est cochee ; le mode SilentRun et ses effets restent vanilla.
+- La lumiere d'alarme utilise la couleur Alarm choisie uniquement au rendu quand Couleurs eclairage est cochee ; le mode Alarm et ses effets restent vanilla.
+- La lumiere SilentRun utilise la couleur SilentRun choisie uniquement au rendu quand Couleurs eclairage est cochee ; le mode SilentRun et ses effets restent vanilla.
 - La ventilation reste vanilla par défaut pour éviter les bugs vus dans les essais précédents.
 - Le patch runtime recalcule la respiration vanilla puis reduit seulement le drain negatif si Mega Oxygene est actif.
 - Le profil air vise environ 90 jours d'immersion avec Mega Oxygene actif, sans toucher a la recharge surface.
@@ -79,7 +80,7 @@ Compteurs de génération :
 - Lignes EnergyUsage consommation : 6
 - Lignes EnergyUsage recharge : 0
 - Mega Batterie : case F10 active = batterie infinie, pompe incluse
-- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3, Plongée x2, Lumières orange/vert, Appeler renforts et bouton Par defaut
+- Menu F10 : sliders runtime bornes par profil, Blindage lourd x3, Super discrétion x3, Plongée x2, Couleurs eclairage avec choix Alarm/SilentRun, Appeler renforts et bouton Par defaut
 - SuperVitesse : runtime F10 reglable 1-20 sur les deux crans rapides avant
 - Lignes vitesse sous-marin joueur : 0
 - Mega torpilles : runtime F10 reglable 1-10, degats defaut x10, effets visuels bornes x3, aucune ligne torpille XLSX ecrasee

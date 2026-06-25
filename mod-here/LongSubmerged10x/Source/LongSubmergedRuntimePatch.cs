@@ -150,8 +150,22 @@ namespace LongSubmerged10x
 
     internal static class InteriorLightingColorPatcher
     {
-        private static readonly Color AlarmOrangeColor = new Color(1f, 0.55f, 0.12f, 1f);
-        private static readonly Color SilentRunGreenColor = new Color(0.12f, 0.78f, 0.28f, 1f);
+        private static readonly InteriorLightingColorPreset[] LightingColorPresets =
+            new InteriorLightingColorPreset[]
+            {
+                new InteriorLightingColorPreset("Orange ambre", new Color(1f, 0.55f, 0.12f, 1f)),
+                new InteriorLightingColorPreset("Vert sous-marin", new Color(0.12f, 0.78f, 0.28f, 1f)),
+                new InteriorLightingColorPreset("Rouge", new Color(0.95f, 0.12f, 0.10f, 1f)),
+                new InteriorLightingColorPreset("Jaune", new Color(1f, 0.88f, 0.16f, 1f)),
+                new InteriorLightingColorPreset("Vert", new Color(0.18f, 0.85f, 0.30f, 1f)),
+                new InteriorLightingColorPreset("Bleu", new Color(0.16f, 0.42f, 1f, 1f)),
+                new InteriorLightingColorPreset("Cyan", new Color(0.16f, 0.86f, 1f, 1f)),
+                new InteriorLightingColorPreset("Turquoise", new Color(0.10f, 0.76f, 0.68f, 1f)),
+                new InteriorLightingColorPreset("Violet", new Color(0.58f, 0.30f, 1f, 1f)),
+                new InteriorLightingColorPreset("Rose", new Color(1f, 0.34f, 0.70f, 1f)),
+                new InteriorLightingColorPreset("Blanc chaud", new Color(1f, 0.86f, 0.64f, 1f)),
+                new InteriorLightingColorPreset("Blanc froid", new Color(0.78f, 0.90f, 1f, 1f))
+            };
 
         private static readonly FieldInfo AlarmInteriorFogColorField =
             AccessTools.Field(typeof(UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting), "alarmInteriorFogColor");
@@ -178,6 +192,40 @@ namespace LongSubmerged10x
         public static bool IsEnabled()
         {
             return LongSubmergedRuntimeSettings.InteriorLightingColors;
+        }
+
+        public static int LightingColorPresetCount
+        {
+            get { return LightingColorPresets.Length; }
+        }
+
+        public static Color GetLightingColorPresetColor(int presetIndex)
+        {
+            return LightingColorPresets[ClampLightingColorPresetIndex(presetIndex)].Color;
+        }
+
+        public static string GetLightingColorPresetName(int presetIndex)
+        {
+            return LightingColorPresets[ClampLightingColorPresetIndex(presetIndex)].Name;
+        }
+
+        public static List<string> GetLightingColorPresetNames()
+        {
+            List<string> names = new List<string>();
+            for (int index = 0; index < LightingColorPresets.Length; index++)
+                names.Add(LightingColorPresets[index].Name);
+
+            return names;
+        }
+
+        private static Color AlarmColor
+        {
+            get { return LongSubmergedRuntimeSettings.InteriorLightingAlarmColor; }
+        }
+
+        private static Color SilentRunColor
+        {
+            get { return LongSubmergedRuntimeSettings.InteriorLightingSilentRunColor; }
         }
 
         public static void ApplyAll(string reason)
@@ -255,8 +303,8 @@ namespace LongSubmerged10x
                     return;
                 }
 
-                SetColorProperty(controller, "AlarmColor", controller.AlarmColor, AlarmOrangeColor);
-                SetColorProperty(controller, "BlueColor", controller.BlueColor, SilentRunGreenColor);
+                SetColorProperty(controller, "AlarmColor", controller.AlarmColor, AlarmColor);
+                SetColorProperty(controller, "BlueColor", controller.BlueColor, SilentRunColor);
             }
             catch (Exception ex)
             {
@@ -280,8 +328,8 @@ namespace LongSubmerged10x
                     return;
                 }
 
-                SetColorProperty(fillLight, "RedColor", fillLight.RedColor, AlarmOrangeColor);
-                SetColorProperty(fillLight, "BlueColor", fillLight.BlueColor, SilentRunGreenColor);
+                SetColorProperty(fillLight, "RedColor", fillLight.RedColor, AlarmColor);
+                SetColorProperty(fillLight, "BlueColor", fillLight.BlueColor, SilentRunColor);
             }
             catch (Exception ex)
             {
@@ -293,8 +341,8 @@ namespace LongSubmerged10x
             UBOAT.Game.Scene.Effects.PlayerShipInteriorLighting lighting
         )
         {
-            SetColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor", AlarmOrangeColor);
-            SetColorField(lighting, SilentRunInteriorFogColorField, "silentRunInteriorFogColor", SilentRunGreenColor);
+            SetColorField(lighting, AlarmInteriorFogColorField, "alarmInteriorFogColor", AlarmColor);
+            SetColorField(lighting, SilentRunInteriorFogColorField, "silentRunInteriorFogColor", SilentRunColor);
             SetColorField(lighting, AlarmLightsColorMultiplierField, "alarmLightsColorMultiplier", Color.white);
             SetColorField(lighting, SilentRunLightsColorMultiplierField, "silentRunLightsColorMultiplier", Color.white);
         }
@@ -486,12 +534,12 @@ namespace LongSubmerged10x
             if (!data.Values.TryGetValue(memberName, out stored))
                 return false;
 
+            if (!ColorsEqual(current, stored.PatchedValue))
+                return false;
+
             data.Values.Remove(memberName);
             if (data.Values.Count == 0)
                 ObjectColorPatches.Remove(target);
-
-            if (!ColorsEqual(current, stored.PatchedValue))
-                return false;
 
             original = stored.OriginalValue;
             return true;
@@ -505,12 +553,32 @@ namespace LongSubmerged10x
                 && Mathf.Abs(left.a - right.a) < 0.0001f;
         }
 
+        private static int ClampLightingColorPresetIndex(int presetIndex)
+        {
+            if (LightingColorPresets.Length == 0)
+                return 0;
+
+            return Mathf.Clamp(presetIndex, 0, LightingColorPresets.Length - 1);
+        }
+
         private static void WarnMissingMember(string memberName)
         {
             if (!MissingMemberWarnings.Add(memberName))
                 return;
 
             Debug.LogWarning("[LongSubmerged10x] Interior lighting color patch skipped missing member: " + memberName + ".");
+        }
+    }
+
+    internal sealed class InteriorLightingColorPreset
+    {
+        public readonly string Name;
+        public readonly Color Color;
+
+        public InteriorLightingColorPreset(string name, Color color)
+        {
+            Name = string.IsNullOrEmpty(name) ? "Couleur" : name;
+            Color = color;
         }
     }
 
@@ -1416,7 +1484,7 @@ namespace LongSubmerged10x
     internal static class LongSubmergedRuntimeSettings
     {
         private const string PrefPrefix = "LongSubmerged10x.";
-        private const int RuntimeSettingsVersion = 18;
+        private const int RuntimeSettingsVersion = 19;
 
         public const float MinRuntimeFactor = 1f;
         public const float BatteryMaxFactor = 100f;
@@ -1440,6 +1508,8 @@ namespace LongSubmerged10x
         private const bool DefaultSuperStealth = false;
         private const bool DefaultDeepDive = true;
         private const bool DefaultInteriorLightingColors = true;
+        private const int DefaultInteriorLightingAlarmColorPresetIndex = 0;
+        private const int DefaultInteriorLightingSilentRunColorPresetIndex = 1;
 
         // DonJ: readable in-game defaults. Mega Batterie now means a fully infinite battery.
         // The battery slider is kept only as a saved legacy value and no longer gates infinity.
@@ -1460,11 +1530,23 @@ namespace LongSubmerged10x
         public static bool SuperStealth = DefaultSuperStealth;
         public static bool DeepDive = DefaultDeepDive;
         public static bool InteriorLightingColors = DefaultInteriorLightingColors;
+        public static int InteriorLightingAlarmColorPresetIndex = DefaultInteriorLightingAlarmColorPresetIndex;
+        public static int InteriorLightingSilentRunColorPresetIndex = DefaultInteriorLightingSilentRunColorPresetIndex;
         public static float BatteryFactor = DefaultBatteryFactor;
         public static float OxygenFactor = DefaultOxygenFactor;
         public static float SpeedFactor = DefaultSpeedFactor;
         public static float TorpedoFactor = DefaultTorpedoFactor;
         public static float SonarFactor = DefaultSonarFactor;
+
+        public static Color InteriorLightingAlarmColor
+        {
+            get { return InteriorLightingColorPatcher.GetLightingColorPresetColor(InteriorLightingAlarmColorPresetIndex); }
+        }
+
+        public static Color InteriorLightingSilentRunColor
+        {
+            get { return InteriorLightingColorPatcher.GetLightingColorPresetColor(InteriorLightingSilentRunColorPresetIndex); }
+        }
 
         public static void Load()
         {
@@ -1479,6 +1561,14 @@ namespace LongSubmerged10x
             SuperStealth = ReadBool("SuperStealth", DefaultSuperStealth);
             DeepDive = ReadBool("DeepDive", DefaultDeepDive);
             InteriorLightingColors = ReadBool("InteriorLightingColors", DefaultInteriorLightingColors);
+            InteriorLightingAlarmColorPresetIndex = ReadInteriorLightingColorPresetIndex(
+                "InteriorLightingAlarmColorPresetIndex",
+                DefaultInteriorLightingAlarmColorPresetIndex
+            );
+            InteriorLightingSilentRunColorPresetIndex = ReadInteriorLightingColorPresetIndex(
+                "InteriorLightingSilentRunColorPresetIndex",
+                DefaultInteriorLightingSilentRunColorPresetIndex
+            );
 
             BatteryFactor = ReadFactor("BatteryFactor", DefaultBatteryFactor, BatteryMaxFactor);
             OxygenFactor = ReadFactor("OxygenFactor", DefaultOxygenFactor, OxygenMaxFactor);
@@ -1504,6 +1594,10 @@ namespace LongSubmerged10x
             SpeedFactor = ClampSpeedFactor(SpeedFactor);
             TorpedoFactor = ClampTorpedoFactor(TorpedoFactor);
             SonarFactor = ClampSonarFactor(SonarFactor);
+            InteriorLightingAlarmColorPresetIndex =
+                ClampInteriorLightingColorPresetIndex(InteriorLightingAlarmColorPresetIndex);
+            InteriorLightingSilentRunColorPresetIndex =
+                ClampInteriorLightingColorPresetIndex(InteriorLightingSilentRunColorPresetIndex);
 
             PlayerPrefs.SetInt(PrefPrefix + "MegaBattery", MegaBattery ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "MegaOxygen", MegaOxygen ? 1 : 0);
@@ -1514,6 +1608,8 @@ namespace LongSubmerged10x
             PlayerPrefs.SetInt(PrefPrefix + "SuperStealth", SuperStealth ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "DeepDive", DeepDive ? 1 : 0);
             PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingColors", InteriorLightingColors ? 1 : 0);
+            PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingAlarmColorPresetIndex", InteriorLightingAlarmColorPresetIndex);
+            PlayerPrefs.SetInt(PrefPrefix + "InteriorLightingSilentRunColorPresetIndex", InteriorLightingSilentRunColorPresetIndex);
             PlayerPrefs.SetFloat(PrefPrefix + "BatteryFactor", BatteryFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "OxygenFactor", OxygenFactor);
             PlayerPrefs.SetFloat(PrefPrefix + "SpeedFactor", SpeedFactor);
@@ -1534,6 +1630,8 @@ namespace LongSubmerged10x
             SuperStealth = DefaultSuperStealth;
             DeepDive = DefaultDeepDive;
             InteriorLightingColors = DefaultInteriorLightingColors;
+            InteriorLightingAlarmColorPresetIndex = DefaultInteriorLightingAlarmColorPresetIndex;
+            InteriorLightingSilentRunColorPresetIndex = DefaultInteriorLightingSilentRunColorPresetIndex;
             BatteryFactor = DefaultBatteryFactor;
             OxygenFactor = DefaultOxygenFactor;
             SpeedFactor = DefaultSpeedFactor;
@@ -1571,6 +1669,15 @@ namespace LongSubmerged10x
             return ClampFactor(value, SonarMaxFactor);
         }
 
+        public static int ClampInteriorLightingColorPresetIndex(int value)
+        {
+            int presetCount = InteriorLightingColorPatcher.LightingColorPresetCount;
+            if (presetCount <= 0)
+                return 0;
+
+            return Mathf.Clamp(value, 0, presetCount - 1);
+        }
+
         public static float ClampFactor(float value, float maxValue)
         {
             if (float.IsNaN(value) || float.IsInfinity(value))
@@ -1587,6 +1694,12 @@ namespace LongSubmerged10x
         private static float ReadFactor(string key, float fallback, float maxValue)
         {
             return ClampFactor(PlayerPrefs.GetFloat(PrefPrefix + key, fallback), maxValue);
+        }
+
+        private static int ReadInteriorLightingColorPresetIndex(string key, int fallback)
+        {
+            int clampedFallback = ClampInteriorLightingColorPresetIndex(fallback);
+            return ClampInteriorLightingColorPresetIndex(PlayerPrefs.GetInt(PrefPrefix + key, clampedFallback));
         }
     }
 
@@ -1616,6 +1729,10 @@ namespace LongSubmerged10x
         private Slider speedFactorSlider;
         private Slider torpedoFactorSlider;
         private Slider sonarFactorSlider;
+        private Dropdown alarmColorDropdown;
+        private Dropdown silentRunColorDropdown;
+        private Image alarmColorSwatch;
+        private Image silentRunColorSwatch;
         private Button callReinforcementsButton;
         private Text batteryFactorValueText;
         private Text oxygenFactorValueText;
@@ -1715,6 +1832,7 @@ namespace LongSubmerged10x
         {
             ReadControlStateIntoSettings();
             RefreshFactorLabels();
+            RefreshColorPresetControls();
             LongSubmergedRuntimeSettings.Save();
             nextBatteryMaintenanceTime = 0f;
             nextMegaSonarMaintenanceTime = 0f;
@@ -1773,7 +1891,7 @@ namespace LongSubmerged10x
             panelRect.anchorMax = new Vector2(0f, 1f);
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = new Vector2(28f, -82f);
-            panelRect.sizeDelta = new Vector2(470f, 815f);
+            panelRect.sizeDelta = new Vector2(470f, 920f);
 
             CreateText(panelObject.transform, "Title", "Long Submerged 10x+", 20, FontStyle.Bold, new Vector2(18f, -16f), new Vector2(410f, 30f));
             CreateText(panelObject.transform, "Hint", "F10 ferme. Les reglages sont sauvegardes et appliques en partie.", 13, FontStyle.Normal, new Vector2(18f, -48f), new Vector2(430f, 24f));
@@ -1797,18 +1915,20 @@ namespace LongSubmerged10x
             superStealthToggle = CreateToggle(panelObject.transform, "Super discrétion", new Vector2(20f, -498f));
 
             deepDiveToggle = CreateToggle(panelObject.transform, "Plongée x2", new Vector2(20f, -534f));
-            interiorLightingToggle = CreateToggle(panelObject.transform, "Lumières orange/vert", new Vector2(20f, -570f));
+            interiorLightingToggle = CreateToggle(panelObject.transform, "Couleurs eclairage", new Vector2(20f, -570f));
+            alarmColorDropdown = CreateColorDropdown(panelObject.transform, "Alarme", new Vector2(20f, -606f), out alarmColorSwatch);
+            silentRunColorDropdown = CreateColorDropdown(panelObject.transform, "Silencieux", new Vector2(20f, -650f), out silentRunColorSwatch);
 
-            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -614f), new Vector2(180f, 38f));
+            callReinforcementsButton = CreateButton(panelObject.transform, "Appeler renforts", new Vector2(20f, -704f), new Vector2(180f, 38f));
             callReinforcementsButton.onClick.AddListener(OnCallReinforcementsClicked);
 
-            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -614f), new Vector2(230f, 38f));
+            reinforcementsStatusText = CreateText(panelObject.transform, "Renforts Status", "Pret", 13, FontStyle.Normal, new Vector2(216f, -704f), new Vector2(230f, 38f));
             reinforcementsStatusText.alignment = TextAnchor.MiddleLeft;
 
-            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -710f), new Vector2(140f, 38f));
+            Button defaultsButton = CreateButton(panelObject.transform, "Par defaut", new Vector2(20f, -802f), new Vector2(140f, 38f));
             defaultsButton.onClick.AddListener(OnDefaultsClicked);
 
-            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -710f), new Vector2(220f, 38f));
+            Button refreshButton = CreateButton(panelObject.transform, "Reappliquer maintenant", new Vector2(176f, -802f), new Vector2(220f, 38f));
             refreshButton.onClick.AddListener(OnRefreshClicked);
         }
 
@@ -1864,6 +1984,14 @@ namespace LongSubmerged10x
             SaveAndApplyCurrentControlsNow("unity ui slider");
         }
 
+        private void OnColorDropdownChanged(int ignored)
+        {
+            if (suppressToggleEvents)
+                return;
+
+            SaveAndApplyCurrentControlsNow("unity ui color dropdown");
+        }
+
         private void ReadControlStateIntoSettings()
         {
             // UI changes must update the runtime state before every immediate apply.
@@ -1876,6 +2004,10 @@ namespace LongSubmerged10x
             LongSubmergedRuntimeSettings.SuperStealth = superStealthToggle != null && superStealthToggle.isOn;
             LongSubmergedRuntimeSettings.DeepDive = deepDiveToggle != null && deepDiveToggle.isOn;
             LongSubmergedRuntimeSettings.InteriorLightingColors = interiorLightingToggle != null && interiorLightingToggle.isOn;
+            LongSubmergedRuntimeSettings.InteriorLightingAlarmColorPresetIndex =
+                ReadColorDropdownPresetIndex(alarmColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingAlarmColorPresetIndex);
+            LongSubmergedRuntimeSettings.InteriorLightingSilentRunColorPresetIndex =
+                ReadColorDropdownPresetIndex(silentRunColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingSilentRunColorPresetIndex);
             LongSubmergedRuntimeSettings.BatteryFactor = ReadSliderFactor(batteryFactorSlider, LongSubmergedRuntimeSettings.BatteryMaxFactor);
             LongSubmergedRuntimeSettings.OxygenFactor = ReadSliderFactor(oxygenFactorSlider, LongSubmergedRuntimeSettings.OxygenMaxFactor);
             LongSubmergedRuntimeSettings.SpeedFactor = ReadSliderFactor(speedFactorSlider, LongSubmergedRuntimeSettings.SpeedMaxFactor);
@@ -1975,6 +2107,7 @@ namespace LongSubmerged10x
                 SetSliderValue(torpedoFactorSlider, LongSubmergedRuntimeSettings.TorpedoFactor, LongSubmergedRuntimeSettings.TorpedoMaxFactor);
                 SetSliderValue(sonarFactorSlider, LongSubmergedRuntimeSettings.SonarFactor, LongSubmergedRuntimeSettings.SonarMaxFactor);
                 RefreshFactorLabels();
+                RefreshColorPresetControls();
             }
             finally
             {
@@ -2005,6 +2138,14 @@ namespace LongSubmerged10x
             SetFactorLabel(sonarFactorValueText, sonarFactorSlider, LongSubmergedRuntimeSettings.SonarMaxFactor, "x", null);
         }
 
+        private void RefreshColorPresetControls()
+        {
+            SetColorDropdownValue(alarmColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingAlarmColorPresetIndex);
+            SetColorDropdownValue(silentRunColorDropdown, LongSubmergedRuntimeSettings.InteriorLightingSilentRunColorPresetIndex);
+            SetColorSwatch(alarmColorSwatch, LongSubmergedRuntimeSettings.InteriorLightingAlarmColor);
+            SetColorSwatch(silentRunColorSwatch, LongSubmergedRuntimeSettings.InteriorLightingSilentRunColor);
+        }
+
         private static void SetSliderValue(Slider slider, float value, float maxValue)
         {
             if (slider == null)
@@ -2023,6 +2164,14 @@ namespace LongSubmerged10x
                 : LongSubmergedRuntimeSettings.ClampFactor(slider.value, maxValue);
         }
 
+        private static int ReadColorDropdownPresetIndex(Dropdown dropdown, int fallback)
+        {
+            if (dropdown == null)
+                return LongSubmergedRuntimeSettings.ClampInteriorLightingColorPresetIndex(fallback);
+
+            return LongSubmergedRuntimeSettings.ClampInteriorLightingColorPresetIndex(dropdown.value);
+        }
+
         private static void SetFactorLabel(Text text, Slider slider, float maxValue, string prefix, string suffixOverride)
         {
             if (text == null || slider == null)
@@ -2030,6 +2179,22 @@ namespace LongSubmerged10x
 
             float value = LongSubmergedRuntimeSettings.ClampFactor(slider.value, maxValue);
             text.text = suffixOverride == null ? prefix + value.ToString("0") : suffixOverride;
+        }
+
+        private static void SetColorDropdownValue(Dropdown dropdown, int presetIndex)
+        {
+            if (dropdown == null)
+                return;
+
+            int clampedIndex = LongSubmergedRuntimeSettings.ClampInteriorLightingColorPresetIndex(presetIndex);
+            dropdown.SetValueWithoutNotify(clampedIndex);
+            dropdown.RefreshShownValue();
+        }
+
+        private static void SetColorSwatch(Image swatch, Color color)
+        {
+            if (swatch != null)
+                swatch.color = color;
         }
 
         private void CaptureCursor()
@@ -2129,6 +2294,138 @@ namespace LongSubmerged10x
             slider.onValueChanged.AddListener(OnFactorSliderChanged);
 
             return slider;
+        }
+
+        private Dropdown CreateColorDropdown(Transform parent, string label, Vector2 anchoredPosition, out Image swatch)
+        {
+            GameObject root = CreateUiObject(label + " Color Preset", parent);
+            RectTransform rootRect = root.GetComponent<RectTransform>();
+            rootRect.anchorMin = new Vector2(0f, 1f);
+            rootRect.anchorMax = new Vector2(0f, 1f);
+            rootRect.pivot = new Vector2(0f, 1f);
+            rootRect.anchoredPosition = anchoredPosition;
+            rootRect.sizeDelta = new Vector2(420f, 34f);
+
+            Text labelText = CreateText(root.transform, "Label", label, 13, FontStyle.Bold, new Vector2(0f, -2f), new Vector2(92f, 28f));
+            labelText.alignment = TextAnchor.MiddleLeft;
+
+            GameObject swatchObject = CreateUiObject("Swatch", root.transform);
+            swatch = swatchObject.AddComponent<Image>();
+            swatch.color = Color.white;
+            RectTransform swatchRect = swatchObject.GetComponent<RectTransform>();
+            swatchRect.anchorMin = new Vector2(0f, 0.5f);
+            swatchRect.anchorMax = new Vector2(0f, 0.5f);
+            swatchRect.pivot = new Vector2(0f, 0.5f);
+            swatchRect.anchoredPosition = new Vector2(96f, -2f);
+            swatchRect.sizeDelta = new Vector2(24f, 24f);
+
+            GameObject dropdownObject = CreateUiObject("Dropdown", root.transform);
+            Image dropdownImage = dropdownObject.AddComponent<Image>();
+            dropdownImage.color = new Color(0.12f, 0.13f, 0.15f, 1f);
+            RectTransform dropdownRect = dropdownObject.GetComponent<RectTransform>();
+            dropdownRect.anchorMin = new Vector2(0f, 0.5f);
+            dropdownRect.anchorMax = new Vector2(0f, 0.5f);
+            dropdownRect.pivot = new Vector2(0f, 0.5f);
+            dropdownRect.anchoredPosition = new Vector2(130f, -2f);
+            dropdownRect.sizeDelta = new Vector2(260f, 30f);
+
+            Dropdown dropdown = dropdownObject.AddComponent<Dropdown>();
+            dropdown.targetGraphic = dropdownImage;
+
+            Text captionText = CreateText(dropdownObject.transform, "Caption", "", 13, FontStyle.Normal, new Vector2(10f, -1f), new Vector2(214f, 28f));
+            captionText.alignment = TextAnchor.MiddleLeft;
+            dropdown.captionText = captionText;
+
+            Text arrowText = CreateText(dropdownObject.transform, "Arrow", "v", 14, FontStyle.Bold, new Vector2(232f, -1f), new Vector2(22f, 28f));
+            arrowText.alignment = TextAnchor.MiddleCenter;
+
+            Text itemText;
+            dropdown.template = CreateDropdownTemplate(dropdownObject.transform, out itemText);
+            dropdown.itemText = itemText;
+            dropdown.ClearOptions();
+            dropdown.AddOptions(InteriorLightingColorPatcher.GetLightingColorPresetNames());
+            dropdown.onValueChanged.AddListener(OnColorDropdownChanged);
+            dropdown.RefreshShownValue();
+
+            return dropdown;
+        }
+
+        private RectTransform CreateDropdownTemplate(Transform parent, out Text itemText)
+        {
+            GameObject template = CreateUiObject("Template", parent);
+            Image templateImage = template.AddComponent<Image>();
+            templateImage.color = new Color(0.06f, 0.07f, 0.08f, 0.98f);
+            RectTransform templateRect = template.GetComponent<RectTransform>();
+            templateRect.anchorMin = new Vector2(0f, 0f);
+            templateRect.anchorMax = new Vector2(1f, 0f);
+            templateRect.pivot = new Vector2(0.5f, 1f);
+            templateRect.anchoredPosition = new Vector2(0f, -32f);
+            templateRect.sizeDelta = new Vector2(0f, 242f);
+
+            ScrollRect scrollRect = template.AddComponent<ScrollRect>();
+            scrollRect.horizontal = false;
+            scrollRect.vertical = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+
+            GameObject viewport = CreateUiObject("Viewport", template.transform);
+            Image viewportImage = viewport.AddComponent<Image>();
+            viewportImage.color = new Color(1f, 1f, 1f, 0.02f);
+            Mask viewportMask = viewport.AddComponent<Mask>();
+            viewportMask.showMaskGraphic = false;
+            RectTransform viewportRect = viewport.GetComponent<RectTransform>();
+            viewportRect.anchorMin = Vector2.zero;
+            viewportRect.anchorMax = Vector2.one;
+            viewportRect.offsetMin = new Vector2(4f, 4f);
+            viewportRect.offsetMax = new Vector2(-4f, -4f);
+
+            GameObject content = CreateUiObject("Content", viewport.transform);
+            RectTransform contentRect = content.GetComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0f, 1f);
+            contentRect.anchorMax = new Vector2(1f, 1f);
+            contentRect.pivot = new Vector2(0.5f, 1f);
+            contentRect.anchoredPosition = Vector2.zero;
+            contentRect.sizeDelta = new Vector2(0f, InteriorLightingColorPatcher.LightingColorPresetCount * 26f);
+
+            VerticalLayoutGroup layout = content.AddComponent<VerticalLayoutGroup>();
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlHeight = false;
+            layout.childControlWidth = true;
+            layout.childForceExpandHeight = false;
+            layout.childForceExpandWidth = true;
+
+            ContentSizeFitter fitter = content.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            GameObject item = CreateUiObject("Item", content.transform);
+            RectTransform itemRect = item.GetComponent<RectTransform>();
+            itemRect.anchorMin = new Vector2(0f, 1f);
+            itemRect.anchorMax = new Vector2(1f, 1f);
+            itemRect.pivot = new Vector2(0.5f, 1f);
+            itemRect.sizeDelta = new Vector2(0f, 26f);
+
+            Toggle itemToggle = item.AddComponent<Toggle>();
+            Image itemBackground = item.AddComponent<Image>();
+            itemBackground.color = new Color(0.10f, 0.11f, 0.13f, 1f);
+            itemToggle.targetGraphic = itemBackground;
+
+            GameObject checkmark = CreateUiObject("Item Checkmark", item.transform);
+            Image checkmarkImage = checkmark.AddComponent<Image>();
+            checkmarkImage.color = new Color(0.18f, 0.85f, 0.52f, 1f);
+            RectTransform checkmarkRect = checkmark.GetComponent<RectTransform>();
+            checkmarkRect.anchorMin = new Vector2(0f, 0.5f);
+            checkmarkRect.anchorMax = new Vector2(0f, 0.5f);
+            checkmarkRect.pivot = new Vector2(0f, 0.5f);
+            checkmarkRect.anchoredPosition = new Vector2(8f, 0f);
+            checkmarkRect.sizeDelta = new Vector2(10f, 10f);
+            itemToggle.graphic = checkmarkImage;
+
+            itemText = CreateText(item.transform, "Item Label", "Option", 13, FontStyle.Normal, new Vector2(26f, 0f), new Vector2(210f, 26f));
+            itemText.alignment = TextAnchor.MiddleLeft;
+
+            scrollRect.viewport = viewportRect;
+            scrollRect.content = contentRect;
+            template.SetActive(false);
+            return templateRect;
         }
 
         private Toggle CreateToggle(Transform parent, string label, Vector2 anchoredPosition)

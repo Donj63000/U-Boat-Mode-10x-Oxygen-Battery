@@ -37,7 +37,7 @@
 | **Mega Sonar** | `Sonar = 3` | Scales hydrophone listening range while leaving arcs and surface modifiers alone. |
 | **Heavy Armor x3** | `Heavy Armor = off` | Optional F10 toggle that reduces player submarine damage to about one third while keeping leaks, fires, repairs, pressure, and destruction possible. |
 | **DeepDive** | `Plongée x2 = on` | Optional F10 toggle, enabled by default, that doubles depth commands above 10 m, evaluates crew depth stress on half real depth, targets 600 m operational real depth, and keeps fatal crush at 700 m. |
-| **Interior Lighting** | `Lumières orange/vert = on` | Optional F10 toggle, enabled by default, that renders Alarm as amber orange and SilentRun as submarine green. |
+| **Interior Lighting** | `Couleurs eclairage = on` | Optional F10 lighting toggle, enabled by default, with F10 color dropdowns for Alarm and SilentRun. Defaults remain amber orange and submarine green. |
 | **Super discrétion / Super Stealth** | `Super discrétion = off` | When enabled, reduces player submarine noise and detectability to about one third without making it invisible. |
 | **SuperSpeed** | `SuperSpeed = 8` | Boosts the two fastest forward gears for faster travel. |
 | **Runtime Menu** | `F10` | Lets you tune the mod in game without rebuilding the mod files. |
@@ -129,7 +129,7 @@ What is included:
 
 ## Interior Lighting
 
-The runtime lighting patch is enabled by default through `Lumières orange/vert` in F10. It keeps the original UBOAT modes but changes their visual colors: Alarm red renders as amber orange, and SilentRun blue renders as submarine green. Disabled restores vanilla lighting colors.
+The runtime lighting patch is enabled by default through `Couleurs eclairage` in F10. It keeps the original UBOAT modes but lets you choose visual colors for Alarm and SilentRun from preset dropdown lists. The shipped defaults stay Alarm amber orange and SilentRun submarine green. Disabled restores vanilla lighting colors.
 
 <p align="center">
   <img src="Images%20GITHUB/silentrun-green-light.png" alt="SilentRun green interior lighting in game" width="100%">
